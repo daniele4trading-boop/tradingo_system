@@ -66,7 +66,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.24"
+BRIDGE_VERSION = "2.25"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -1611,6 +1611,60 @@ def _ivan_reentry_is_repeat(last: dict | None, entry: float | None) -> bool:
 # Ampiezza massima della forchetta SL→TP più lontano di un setup IVAN leggibile.
 IVAN_TYPO_MAX_SPAN = 300.0
 
+# Finestra entro cui "chiudiamo questa" dopo un rientro si riferisce al rientro.
+IVAN_CLOSE_THIS_REENTRY_SEC = 30 * 60.0
+
+
+def _ivan_close_targets_recent_reentry(upper: str, last: dict | None) -> bool:
+    """"Chiudiamo questa" subito dopo un rientro: va chiuso solo il rientro.
+
+    Il dimostrativo singolare indica l'ultima posizione aperta; senza un rientro
+    recente (o con "tutto") resta una chiusura totale.
+    """
+    if not isinstance(last, dict) or not last.get("allow_stack"):
+        return False
+    ts = last.get("ts")
+    if not isinstance(ts, (int, float)) or (time.time() - ts) > IVAN_CLOSE_THIS_REENTRY_SEC:
+        return False
+    text = fold_accents(upper)
+    if re.search(r"\bTUTT[OIE]\b|\bALL\b|\bEVERYTHING\b|\bENTRAMB[EI]\b", text):
+        return False
+    return re.search(
+        r"\b(?:QUEST[AO]|QUEST'ULTIM[AO]|L'ULTIM[AO]|THIS\s+ONE|THIS)\b", text
+    ) is not None
+
+
+def _ivan_repair_range_typo(a: float, b: float, sl: float,
+                            tps: list[float]) -> tuple[float, float] | None:
+    """Zona con una cifra sbagliata ("4401-3399" per 4401-4399).
+
+    Se un estremo è coerente con la forchetta SL→TP e l'altro no, l'estremo
+    fuori viene riallineato copiando le cifre iniziali di quello buono; vale
+    solo se il risultato rientra nella forchetta. Altrimenti ``None``.
+    """
+    if any(tp is None or tp <= 0 for tp in tps):
+        return None
+    lo = min([sl] + list(tps))
+    hi = max([sl] + list(tps))
+    if hi - lo > IVAN_TYPO_MAX_SPAN:
+        return None
+
+    def inside(v: float) -> bool:
+        return lo <= v <= hi
+
+    if inside(a) == inside(b):
+        return None
+    good, bad = (a, b) if inside(a) else (b, a)
+    gs, bs = f"{int(good)}", f"{int(bad)}"
+    if len(gs) != len(bs) or len(gs) < 3:
+        return None
+    # Copia le cifre iniziali dal valore buono fin dove serve a rientrare.
+    for n in range(1, len(gs) - 1):
+        fixed = float(gs[:n] + bs[n:]) + (bad - int(bad))
+        if inside(fixed) and abs(fixed - good) <= IVAN_TYPO_MAX_SPAN:
+            return min(good, fixed), max(good, fixed)
+    return None
+
 
 def _ivan_entry_is_typo(direction: str, entry: float | None,
                         sl: float | None, tps: list[float]) -> bool:
@@ -2260,6 +2314,25 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
             if signal is not None:
                 return signal
 
+    # "Chiduamo questa" due minuti dopo "Rientriamo con piccola size": il
+    # canale chiude il rientro, non il setup base (09/09 aveva chiuso tutto e
+    # il setup ha poi preso TP3).
+    if (
+        not has_setup
+        and match_close_all_intent(upper)[0]
+        and match_selective_close_intent(upper) is None
+        and _ivan_close_targets_recent_reentry(upper, state.ivan_last_trade)
+    ):
+        state.pop_close_price_pending(ch["id"])
+        log.info(f"[IVAN] CLOSE_SELECTIVE keep=ALL_BUT_NEWEST (rientro): {raw[:60]}")
+        return {
+            "action":      "CLOSE_SELECTIVE",
+            "keep":        "ALL_BUT_NEWEST",
+            "symbol":      "XAUUSD",
+            "magic_base":  ch["magic_base"],
+            "raw_message": raw,
+        }
+
     close_sig = _maybe_close_from_text(upper, ch, raw, state)
     if close_sig:
         return close_sig
@@ -2311,6 +2384,17 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
             f"apertura a mercato (ENTRY_TYPO_MARKET)"
         )
         entry = None
+
+    # Zona con typo ("BUY 4401-3399" per 4401-4399): senza correzione la zona
+    # era scartata come non plausibile e il setup non apriva (09/09).
+    if entry_range is not None and entry_range[1] - entry_range[0] > IVAN_TYPO_MAX_SPAN:
+        repaired = _ivan_repair_range_typo(entry_range[0], entry_range[1], sl, tps)
+        if repaired is not None:
+            log.warning(
+                f"[IVAN] Zona {entry_range} con typo, corretta in "
+                f"{list(repaired)} (RANGE_TYPO_FIXED)"
+            )
+            entry_range = list(repaired)
 
     # Accent-insensitive: METÀ SIZE, Meta size, MEZZA SIZE, typo META SAZIE
     folded = fold_accents(upper)
