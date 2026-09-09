@@ -16,13 +16,21 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.24** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| Bridge Python | **2.25** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
 | EA MT5 | **2.24** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.11** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**2.25 (solo bridge):** IVAN, casi del 09/09. (1) "Chiduamo questa" due minuti dopo
+"Rientriamo con piccola size" chiudeva tutto il simbolo (setup base incluso, che poi ha
+preso TP3): ora, con un rientro emesso da meno di 30 minuti e senza "tutto", il
+dimostrativo singolare produce `CLOSE_SELECTIVE keep=ALL_BUT_NEWEST` (solo il rientro).
+(2) Zona con typo "BUY 4401-3399" (per 4401-4399) veniva scartata come non plausibile e il
+setup non apriva: se un estremo è dentro la forchetta SL→TP e l'altro no, quello fuori
+viene riallineato copiando le cifre iniziali dell'estremo buono (`RANGE_TYPO_FIXED`).
 
 **2.24 / MT5 2.24 / MT4 1.11:** un campo nullo nel payload non viene più letto come
 l'array successivo. Il lettore JSON dell'EA cercava la chiave e poi il primo `[` del file:

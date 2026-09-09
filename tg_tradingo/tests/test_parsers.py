@@ -1474,6 +1474,60 @@ class TestIvanReentry:
         sig = parser_ivan_vip("Chiudiamo tutto, anche i rientri", CH_IVAN, bridge_state)
         assert sig["action"] == "CLOSE_ALL_SYMBOL"
 
+    def test_chiudiamo_questa_dopo_rientro_chiude_solo_il_rientro(self, bridge_state):
+        """Caso reale CH_IVAN 09/09 12:52Z: chiuse anche il setup, che poi fece TP3."""
+        parser_ivan_vip(
+            "XAUUSD BUY 4398 |  | TP1: 4404 | TP2: 4407 | TP3: 4412 | TP4: 4450 |  | SL: 4386",
+            CH_IVAN, bridge_state,
+        )
+        re_sig = parser_ivan_vip(
+            "Rientriamo con piccola size qui da 4396", CH_IVAN, bridge_state
+        )
+        assert re_sig["action"] == "OPEN" and re_sig["allow_stack"]
+        sig = parser_ivan_vip("Chiduamo questa", CH_IVAN, bridge_state)
+        assert sig is not None
+        assert sig["action"] == "CLOSE_SELECTIVE"
+        assert sig["keep"] == "ALL_BUT_NEWEST"
+        ok, reason = validate_signal(sig)
+        assert ok, reason
+
+    def test_chiudiamo_questa_senza_rientro_resta_totale(self, bridge_state):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip("Chiudiamo questa", CH_IVAN, bridge_state)
+        assert sig["action"] == "CLOSE_ALL_SYMBOL"
+
+    def test_chiudiamo_tutto_dopo_rientro_resta_totale(self, bridge_state):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        parser_ivan_vip("Rientriamo qui da 4060", CH_IVAN, bridge_state)
+        sig = parser_ivan_vip("Chiudiamo tutto", CH_IVAN, bridge_state)
+        assert sig["action"] == "CLOSE_ALL_SYMBOL"
+
+    def test_zona_con_typo_viene_corretta(self, bridge_state):
+        """Caso reale CH_IVAN 09/09 10:57Z: "4401-3399" scartata, setup mai aperto."""
+        sig = parser_ivan_vip(
+            "XAUUSD BUY 4401-3399 |  | TP1: 4404 | TP2: 4407 | TP3: 4412 | TP4: 4450 |  | SL: 4386",
+            CH_IVAN, bridge_state,
+        )
+        assert sig is not None
+        assert sig["action"] == "OPEN"
+        assert sig["entry_range"] == [4399.0, 4401.0]
+        assert sig["entry"] is None
+        ok, reason = validate_signal(sig)
+        assert ok, reason
+
+    def test_zona_incoerente_non_viene_inventata(self, bridge_state):
+        sig = parser_ivan_vip(
+            "XAUUSD BUY 4401-3399 |  | TP1: 4404 |  | SL: 4386",
+            CH_IVAN, bridge_state,
+        )
+        # SL/TP coerenti -> stessa correzione; con TP fuori scala non si tocca.
+        assert sig["entry_range"] == [4399.0, 4401.0]
+        sig2 = parser_ivan_vip(
+            "XAUUSD BUY 4401-3399 |  | TP1: 5404 |  | SL: 4386",
+            CH_IVAN, bridge_state,
+        )
+        assert sig2["entry_range"] == [3399.0, 4401.0]
+
     def test_spostiamo_lo_stop_a_prezzo(self, bridge_state):
         """Caso reale CH_IVAN 06/08 12:43Z: era UNPARSED, lo SL restava a 4250."""
         parser_ivan_vip(
