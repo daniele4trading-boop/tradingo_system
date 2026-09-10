@@ -24,6 +24,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--volume-filter", action="store_true")
     ap.add_argument("--vol-n", type=int, default=20)
     ap.add_argument("--vol-k", type=float, default=1.2)
+    ap.add_argument("--immediate-trigger", action="store_true",
+                    help="rientro + trigger VWAP obbligatori sulla barra subito dopo il break-in")
+    ap.add_argument("--min-range-bars", type=int, default=0,
+                    help="lateralità: N barre chiuse dentro l'ORB prima del break-in")
+    ap.add_argument("--range-mode", choices=["inside", "not_beyond"], default="inside")
     ap.add_argument("--atr-period", type=int, default=14)
     ap.add_argument("--atr-mult", type=float, default=2.0)
     ap.add_argument("--sl-buffer", type=float, default=0.0)
@@ -38,7 +43,9 @@ def main(argv: list[str] | None = None) -> int:
     cfg = BacktestConfig(
         symbol=a.symbol, months=a.months, end=a.end, initial_capital=a.capital,
         session=SessionSpec(cutoff_time=time(int(hh), int(mm))),
-        setup=SetupParams(volume_filter=a.volume_filter, vol_ma_n=a.vol_n, vol_k=a.vol_k),
+        setup=SetupParams(volume_filter=a.volume_filter, vol_ma_n=a.vol_n, vol_k=a.vol_k,
+                          immediate_trigger=a.immediate_trigger, min_range_bars=a.min_range_bars,
+                          range_mode=a.range_mode),
         risk=RiskParams(sl_buffer=a.sl_buffer, min_risk_dist=a.min_risk_dist),
         trail=TrailParams(a.atr_period, a.atr_mult),
     )

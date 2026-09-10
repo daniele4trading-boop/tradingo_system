@@ -188,6 +188,38 @@ def test_volume_filter_on_off():
     assert on2.trigger is not None and on2.trigger.vol_filter_passed is True
 
 
+def test_immediate_trigger_touch_vwap_intrabar():
+    p = SetupParams(immediate_trigger=True)
+    # break-in (close 99, vwap 103); barra dopo tocca 103 → ingresso a 103, non al close
+    r = run([(101, 102, 98, 99), (99.5, 104, 99, 101)], p, vwap=103.0)
+    t = r.trigger
+    assert t is not None and t.same_bar and t.intrabar and t.entry_close == 103.0 and t.bar_close == 101
+    # apertura già sopra il vwap → ingresso all'open (peggiore)
+    r2 = run([(101, 102, 98, 99), (104, 106, 103.5, 105)], p, vwap=103.0)
+    assert r2.trigger.entry_close == 104.0
+
+
+def test_immediate_trigger_fails_then_rearms():
+    p = SetupParams(immediate_trigger=True)
+    # break-in, barra dopo non arriva al vwap → FAILED; nuovo break-in → tocco sulla successiva
+    r = run([(101, 102, 98, 99), (99, 102.5, 99, 102), (102, 103, 98, 99), (99, 104, 99, 101)], p, vwap=103.0)
+    assert r.trigger is not None and r.trigger.breakin_ts == bars([(0, 0, 0, 0)] * 3).index[2]
+    assert r.dirs[LONG].failed_attempts == 1
+    # vwap sotto ORB_Low → toccarlo non è un rientro: FAILED
+    r2 = run([(101, 102, 97, 98), (98, 100, 96, 99)], p, vwap=97.0)
+    assert r2.trigger is None and r2.dirs[LONG].failed_attempts == 1 and r2.dirs[LONG].state == "IDLE"
+
+
+def test_min_range_bars_requires_lateral_phase():
+    inside = (104, 106, 103, 105)
+    p = SetupParams(min_range_bars=3)
+    # solo 2 barre dentro prima del break-in → scartato; poi 3 dentro → armato e trigger
+    r = run([inside, inside, (101, 102, 98, 99), inside, inside, inside, (101, 102, 98, 99),
+             (104, 106, 103.5, 105)], p, vwap=103.0)
+    assert r.dirs[LONG].range_rejects == 1 and r.trigger is not None
+    assert r.trigger.breakin_ts == bars([(0, 0, 0, 0)] * 7).index[6]
+
+
 def test_bars_before_orb_end_ignored():
     b = bars([(101, 102, 98, 99), (104, 106, 103.5, 105)], start="2026-01-12 14:30", vwap=103.0)
     r = run_session_setup(b, session(), ORB, SetupParams())

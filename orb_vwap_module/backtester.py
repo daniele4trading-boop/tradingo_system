@@ -104,23 +104,38 @@ def run(data_dir: str | Path, cfg: BacktestConfig, prepared: tuple | None = None
             continue
         n_orb += 1
         res = run_session_setup(bars, s, orb, cfg.setup)
+        setup_rows: dict[str, dict] = {}
         for d in (LONG, SHORT):
             st = res.dirs[d]
-            if st.breakin_ts is None:     # mai armato (IDLE o disarmato senza break-in)
-                continue
-            setups.append({"session": s.day, "direction": d, "final_state": st.state,
+            if st.breakin_ts is None and st.failed_attempts == 0 and st.range_rejects == 0:
+                continue                  # mai armato (IDLE o disarmato senza break-in)
+            state = st.state if st.breakin_ts is not None else ("FAILED" if st.failed_attempts else "RANGE_REJECT")
+            setup_rows[d] = {"session": s.day, "direction": d, "final_state": state,
                            "breakin_ts": st.breakin_ts, "reentry_ts": st.reentry_ts,
                            "trigger_ts": st.trigger_ts, "end_ts": st.end_ts,
                            "vol_filter_rejections": st.vol_checks_failed,
-                           "orb_high": orb.high, "orb_low": orb.low})
+                           "failed_attempts": st.failed_attempts, "range_rejects": st.range_rejects,
+                           "orb_high": orb.high, "orb_low": orb.low}
+            setups.append(setup_rows[d])
         trg = res.trigger
         if trg is None:
             continue
         sl_level = orb.low - cfg.risk.sl_buffer if trg.direction == LONG else orb.high + cfg.risk.sl_buffer
         if abs(trg.entry_close - sl_level) < cfg.risk.min_risk_dist:
-            setups[-1 if setups[-1]["direction"] == trg.direction else -2]["final_state"] = "SKIPPED_MIN_RISK"
+            setup_rows[trg.direction]["final_state"] = "SKIPPED_MIN_RISK"
             continue
         after = bars[bars.index > trg.ts]
+        if trg.intrabar:
+            # Resto della barra d'ingresso: si assume che il prezzo sia arrivato al VWAP
+            # dall'estremo opposto (il minimo del long era già fatto), poi prosegua
+            # verso l'estremo a favore e chiuda al close. Stop possibile solo se il close
+            # torna oltre; TP possibile se l'estremo a favore lo raggiunge.
+            e = trg.entry_close
+            lo = min(e, trg.bar_close) if trg.direction == LONG else trg.bar_low
+            hi = trg.bar_high if trg.direction == LONG else max(e, trg.bar_close)
+            entry_bar = bars.loc[[trg.ts]].copy()
+            entry_bar.loc[trg.ts, ["open", "high", "low", "close"]] = [e, hi, lo, trg.bar_close]
+            after = pd.concat([entry_bar, after])
         tr: TradeResult = simulate(trg.direction, trg.ts, trg.entry_close, trg.spread, orb.low, orb.high,
                                    after, capital if cfg.risk.compound else cfg.initial_capital,
                                    cfg.variant, cfg.risk, cfg.trail)

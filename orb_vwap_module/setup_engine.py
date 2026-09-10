@@ -30,6 +30,15 @@ class SetupParams:
     volume_filter: bool = False
     vol_ma_n: int = 20
     vol_k: float = 1.2
+    # La barra immediatamente successiva al break-in deve raggiungere il VWAP (livello noto
+    # alla sua apertura = VWAP di chiusura della barra di break-in): ingresso intrabar al
+    # tocco del livello. Se non accade il tentativo fallisce e la direzione torna IDLE.
+    immediate_trigger: bool = False
+    # Lateralità: le N barre che precedono il break-in devono aver chiuso dentro l'ORB.
+    min_range_bars: int = 0
+    # "inside": le N barre chiudono tutte dentro l'ORB; "not_beyond": nessuna delle N
+    # barre ha chiuso oltre il livello che viene rotto (lateralità sopra/sotto il livello).
+    range_mode: str = "inside"
 
 
 @dataclass
@@ -41,6 +50,8 @@ class DirectionState:
     trigger_ts: pd.Timestamp | None = None
     end_ts: pd.Timestamp | None = None
     vol_checks_failed: int = 0   # barre che avevano il trigger di prezzo ma non il volume
+    failed_attempts: int = 0     # break-in senza rientro+trigger immediato (solo immediate_trigger)
+    range_rejects: int = 0       # break-in scartati per lateralità insufficiente
 
 
 @dataclass
@@ -57,6 +68,10 @@ class Trigger:
     vol_ma: float
     vol_filter_on: bool
     vol_filter_passed: bool
+    intrabar: bool = False    # ingresso al tocco del VWAP dentro la barra (non al close)
+    bar_high: float = float("nan")
+    bar_low: float = float("nan")
+    bar_close: float = float("nan")
 
 
 @dataclass
@@ -77,6 +92,16 @@ def _body_beyond_vwap(direction: str, o: float, c: float, vwap: float) -> bool:
     return min(o, c) > vwap if direction == LONG else max(o, c) < vwap
 
 
+def _inside(close: float, orb: ORB) -> bool:
+    return orb.low < close < orb.high
+
+
+def _lateral(direction: str, close: float, orb: ORB, p: SetupParams) -> bool:
+    if p.range_mode == "not_beyond":
+        return not _beyond(direction, close, orb)
+    return _inside(close, orb)
+
+
 def _volume_ok(p: SetupParams, vol: float, vol_ma: float) -> bool:
     if not p.volume_filter:
         return True
@@ -90,8 +115,10 @@ def run_session_setup(bars: pd.DataFrame, s: Session, orb: ORB, p: SetupParams) 
     close, volume, spread, vwap, vol_ma), indice = apertura barra UTC.
     Vengono valutate solo le barre che aprono a partire dalla fine dell'ORB."""
     res = SessionSetupResult(s, orb, {LONG: DirectionState(LONG), SHORT: DirectionState(SHORT)})
-    work = bars[bars.index >= s.orb_end_utc]
-    for ts, row in work.iterrows():
+    closes = bars["close"].astype(float).tolist()
+    first = int((bars.index < s.orb_end_utc).sum())
+    for i in range(first, len(bars)):
+        ts, row = bars.index[i], bars.iloc[i]
         o, c = float(row["open"]), float(row["close"])
         vwap = float(row["vwap"])
         for d in (LONG, SHORT):
@@ -105,12 +132,44 @@ def run_session_setup(bars: pd.DataFrame, s: Session, orb: ORB, p: SetupParams) 
             beyond = _beyond(d, c, orb)
             if st.state == "IDLE":
                 if beyond:
+                    n = p.min_range_bars
+                    if n > 0 and (i < n or not all(_lateral(d, x, orb, p) for x in closes[i - n:i])):
+                        st.range_rejects += 1
+                        continue
                     st.state, st.breakin_ts = "ARMED", ts
                 continue
             if st.state == "CONFIRMED" and beyond:
                 st.state, st.end_ts = "INVALID", ts
                 continue
             if st.state == "ARMED":
+                if p.immediate_trigger:
+                    level = float(bars.iloc[i - 1]["vwap"])
+                    hi, lo = float(row["high"]), float(row["low"])
+                    sgn = 1 if d == LONG else -1
+                    # il VWAP deve stare dentro l'ORB (oltre il livello rotto): toccarlo
+                    # significa essere rientrati, e la distanza entry-SL è positiva
+                    bound = orb.low if d == LONG else orb.high
+                    reachable = (not pd.isna(level)) and sgn * (level - bound) > 0
+                    touched = (hi >= level) if d == LONG else (lo <= level)
+                    vol_ok = _volume_ok(p, float(row["volume"]), float(row["vol_ma"]))
+                    if not (reachable and touched):
+                        st.failed_attempts += 1
+                        st.state, st.breakin_ts = "IDLE", None
+                        continue
+                    if not vol_ok:
+                        st.vol_checks_failed += 1
+                        st.failed_attempts += 1
+                        st.state, st.breakin_ts = "IDLE", None
+                        continue
+                    entry = max(o, level) if d == LONG else min(o, level)
+                    st.state, st.reentry_ts, st.trigger_ts, st.end_ts = "TRIGGERED", ts, ts, ts
+                    res.trigger = Trigger(
+                        direction=d, ts=ts, breakin_ts=st.breakin_ts, reentry_ts=ts, same_bar=True,
+                        entry_close=entry, vwap=level, spread=float(row["spread"]),
+                        volume=float(row["volume"]), vol_ma=float(row["vol_ma"]),
+                        vol_filter_on=p.volume_filter, vol_filter_passed=vol_ok,
+                        intrabar=True, bar_high=hi, bar_low=lo, bar_close=c)
+                    break
                 if beyond:
                     continue
                 st.state, st.reentry_ts = "CONFIRMED", ts
