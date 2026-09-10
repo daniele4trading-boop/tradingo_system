@@ -17,12 +17,21 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
 | Bridge Python | **2.25** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.24** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
-| EA MT4 | **1.11** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
+| EA MT5 | **2.25** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| EA MT4 | **1.12** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**MT5 2.25 / MT4 1.12 (solo EA):** casi IVAN del 10/09. (1) Tolleranza off-market
+`InpRangeTolerancePoints` da 150 a 200 punti (default e tutti i preset): il setup
+`BUY 4344-4340` con prezzo a 4345,73 (173 punti oltre la zona) veniva annullato.
+(2) Break-even: quando SL=entry non è ancora legale (prezzo entro lo stops level
+dell'apertura reale del ticket) il comando non viene più scartato
+(`BE_SKIPPED_WORSE_THAN_ENTRY`): il ticket resta in coda (`BE_PENDING`) e lo SL viene
+portato al prezzo di apertura appena il mercato lo consente (`BE_PENDING_APPLIED`),
+senza mai clampare peggio dell'entry. `InpBePendingRetry=false` ripristina lo scarto.
 
 **2.25 (solo bridge):** IVAN, casi del 09/09. (1) "Chiduamo questa" due minuti dopo
 "Rientriamo con piccola size" chiudeva tutto il simbolo (setup base incluso, che poi ha

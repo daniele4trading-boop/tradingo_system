@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.24"
+#property version   "2.25"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.24"
+#define EA_VERSION "2.25"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -42,7 +42,7 @@ input string InpTagForex           = "";
 input bool   InpCommentUseTgPrefix = false; // false -> IT-T1 ; true -> TG-IT-T1
 input int    InpMaxSlippagePoints  = 50;
 input int    InpPollMs             = 500;
-input int    InpRangeTolerancePoints = 150;
+input int    InpRangeTolerancePoints = 200;
 input int    InpOroRangeTolerancePoints = 250; // 0 = use InpRangeTolerancePoints
 input bool   InpLogCancelledSignals  = true;
 input bool   InpClearSignalAfterProcess = true;
@@ -70,6 +70,10 @@ input int    InpNakedFallbackSlPoints = 1200;
 // legal (position in loss, or entry closer than the broker stops level) keep
 // the current SL instead of clamping past the entry.
 input bool   InpBeNeverWorseThanEntry = true;
+// When SL=entry is not legal yet (price still within the stops level of the
+// entry) the break-even stays pending and is retried on every tick until the
+// market allows it; a position that closes meanwhile is simply dropped.
+input bool   InpBePendingRetry        = true;
 // UPDATE_SL moving the stop further away is a legitimate channel decision (give
 // the price room), but the lot size was computed on the previous risk: cap the
 // new stop at this multiple of the open->current SL distance instead of
@@ -583,7 +587,65 @@ bool ModifyPositionSLTP(const ulong ticket, const double sl, const double tp,
   }
 
 //+------------------------------------------------------------------+
+ulong g_bePending[];
+
+bool BePendingContains(const ulong ticket)
+  {
+   for(int i = 0; i < ArraySize(g_bePending); i++)
+      if(g_bePending[i] == ticket)
+         return true;
+   return false;
+  }
+
+void BePendingAdd(const ulong ticket)
+  {
+   if(BePendingContains(ticket))
+      return;
+   int n = ArraySize(g_bePending);
+   ArrayResize(g_bePending, n + 1);
+   g_bePending[n] = ticket;
+  }
+
+void BePendingRemove(const int index)
+  {
+   int n = ArraySize(g_bePending);
+   for(int i = index; i < n - 1; i++)
+      g_bePending[i] = g_bePending[i + 1];
+   ArrayResize(g_bePending, n - 1);
+  }
+
+bool ApplyBreakEvenSLEx(const ulong ticket, const bool fromQueue);
+
 bool ApplyBreakEvenSL(const ulong ticket)
+  {
+   return ApplyBreakEvenSLEx(ticket, false);
+  }
+
+datetime g_beLastRetry = 0;
+
+void ProcessBePending()
+  {
+   if(ArraySize(g_bePending) == 0 || TimeCurrent() == g_beLastRetry)
+      return;
+   g_beLastRetry = TimeCurrent();
+   for(int i = ArraySize(g_bePending) - 1; i >= 0; i--)
+     {
+      ulong tk = g_bePending[i];
+      if(!g_pos.SelectByTicket(tk))
+        {
+         BePendingRemove(i);
+         continue;
+        }
+      if(ApplyBreakEvenSLEx(tk, true))
+        {
+         Print("[TradinGo] BE_PENDING_APPLIED ticket=", tk,
+               " sl=", DoubleToString(g_pos.PriceOpen(), (int)g_sym.Digits()));
+         BePendingRemove(i);
+        }
+     }
+  }
+
+bool ApplyBreakEvenSLEx(const ulong ticket, const bool fromQueue)
   {
    // Close-half / CHECK_AND_BE: prefer SL=entry; if invalid vs market, clamp to min legal stop.
    // Retry with a wider buffer on 10016 (spread race after half-close).
@@ -607,10 +669,21 @@ bool ApplyBreakEvenSL(const ulong ticket)
       bool worseThanEntry = (direction == "BUY") ? (nsl < be - tol) : (nsl > be + tol);
       if(InpBeNeverWorseThanEntry && worseThanEntry)
         {
-         Print("[TradinGo] BE_SKIPPED_WORSE_THAN_ENTRY ticket=", ticket,
-               " entry=", DoubleToString(be, (int)g_sym.Digits()),
-               " would_be_sl=", DoubleToString(nsl, (int)g_sym.Digits()),
-               " (", direction, ") — SL kept unchanged");
+         if(fromQueue)
+            return false;
+         if(InpBePendingRetry)
+           {
+            BePendingAdd(ticket);
+            Print("[TradinGo] BE_PENDING ticket=", ticket,
+                  " entry=", DoubleToString(be, (int)g_sym.Digits()),
+                  " would_be_sl=", DoubleToString(nsl, (int)g_sym.Digits()),
+                  " (", direction, ") — retry until SL=entry is legal");
+           }
+         else
+            Print("[TradinGo] BE_SKIPPED_WORSE_THAN_ENTRY ticket=", ticket,
+                  " entry=", DoubleToString(be, (int)g_sym.Digits()),
+                  " would_be_sl=", DoubleToString(nsl, (int)g_sym.Digits()),
+                  " (", direction, ") — SL kept unchanged");
          return false;
         }
       if(MathAbs(nsl - be) > g_sym.Point())
@@ -3301,6 +3374,7 @@ int OnInit()
          " protect_existing_levels=", InpProtectExistingLevels,
          " naked_fallback_sl_pts=", InpNakedFallbackSlPoints,
          " be_never_worse_than_entry=", InpBeNeverWorseThanEntry,
+         " be_pending_retry=", InpBePendingRetry,
          " stop_buffer_pts=", InpStopBufferPoints);
    Print("[TradinGo] v", EA_VERSION, " lots/tags | ivan=", DoubleToString(InpLotIvan, 2),
          "/", InpTagIvan,
@@ -3359,6 +3433,7 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   ProcessBePending();
    CheckEquityFloorGuard();
    CheckFloatingKillSwitch();
    CheckMaxHolding();
