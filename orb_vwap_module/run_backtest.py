@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import time
 
 from .backtester import BacktestConfig
@@ -44,7 +45,9 @@ def main(argv: list[str] | None = None) -> int:
     ab = run_ab(a.data_dir, cfg)
     grid = run_grid(a.data_dir, cfg) if a.grid else None
     path = write_outputs(a.out, ab, grid, a.data_note)
-    print(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    enc = sys.stdout.encoding or "utf-8"
+    print(text.encode(enc, errors="replace").decode(enc))
     return 0
 
 
