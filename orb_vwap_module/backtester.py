@@ -8,7 +8,7 @@ import pandas as pd
 
 from .orb import compute_orb
 from .position_manager import RiskParams, TrailParams, TradeResult, simulate
-from .session import SessionSpec, build_sessions, session_bars
+from .session import SessionSpec, build_sessions, build_windows, session_bars
 from .setup_engine import LONG, SHORT, SetupParams, run_session_setup
 from .vwap import atr, session_vwap, volume_ma
 
@@ -64,7 +64,9 @@ def prepare(data_dir: str | Path, cfg: BacktestConfig) -> tuple[pd.DataFrame, pd
     VWAP di sessione, ATR e media volume sul trigger-tf."""
     tf_map = {"5min": "M5", "15min": "M15", "1min": "M1", "1h": "H1", "4h": "H4"}
     trig = load_symbol(data_dir, cfg.symbol, tf_map[cfg.session.trigger_tf])
-    orbdf = load_symbol(data_dir, cfg.symbol, tf_map[cfg.session.orb_tf])
+    # ORB su un timeframe non esportato (es. 30min, 2h): aggregato dalle barre trigger
+    orb_tf = tf_map.get(cfg.session.orb_tf)
+    orbdf = load_symbol(data_dir, cfg.symbol, orb_tf) if orb_tf else trig
     end = pd.Timestamp(cfg.end) if cfg.end else trig.index[-1]
     start = end - pd.DateOffset(months=cfg.months)
     # ATR/volume MA hanno bisogno di storia prima dello start: calcolo su tutto poi taglio
@@ -76,9 +78,9 @@ def prepare(data_dir: str | Path, cfg: BacktestConfig) -> tuple[pd.DataFrame, pd
     trig.attrs["atr_period"] = cfg.trail.atr_period
     trig.attrs["vol_ma_n"] = cfg.setup.vol_ma_n
     orbdf = orbdf[(orbdf.index >= start) & (orbdf.index <= end)]
-    sessions = build_sessions(trig.index, cfg.session)
-    trig["vwap"] = session_vwap(trig, sessions, cfg.session)
-    return trig, orbdf, sessions, full
+    days = build_sessions(trig.index, cfg.session)
+    trig["vwap"] = session_vwap(trig, days, cfg.session)
+    return trig, orbdf, build_windows(days, cfg.session), full
 
 
 def run(data_dir: str | Path, cfg: BacktestConfig, prepared: tuple | None = None) -> BacktestResult:
@@ -95,7 +97,10 @@ def run(data_dir: str | Path, cfg: BacktestConfig, prepared: tuple | None = None
     setups: list[dict] = []
     eq = [{"ts": trig.index[0], "equity": capital}]
     n_orb = 0
+    busy_until: pd.Timestamp | None = None    # una posizione alla volta (finestre rolling)
     for s in sessions:
+        if busy_until is not None and pd.Timestamp(s.open_utc) < busy_until:
+            continue
         orb = compute_orb(orbdf, s, cfg.session)
         if orb is None:
             continue
@@ -120,7 +125,10 @@ def run(data_dir: str | Path, cfg: BacktestConfig, prepared: tuple | None = None
         trg = res.trigger
         if trg is None:
             continue
-        sl_level = orb.low - cfg.risk.sl_buffer if trg.direction == LONG else orb.high + cfg.risk.sl_buffer
+        sl_lo, sl_hi = orb.low, orb.high
+        if not pd.isna(trg.sl_level):
+            sl_lo = sl_hi = trg.sl_level
+        sl_level = sl_lo - cfg.risk.sl_buffer if trg.direction == LONG else sl_hi + cfg.risk.sl_buffer
         if abs(trg.entry_close - sl_level) < cfg.risk.min_risk_dist:
             setup_rows[trg.direction]["final_state"] = "SKIPPED_MIN_RISK"
             continue
@@ -136,13 +144,14 @@ def run(data_dir: str | Path, cfg: BacktestConfig, prepared: tuple | None = None
             entry_bar = bars.loc[[trg.ts]].copy()
             entry_bar.loc[trg.ts, ["open", "high", "low", "close"]] = [e, hi, lo, trg.bar_close]
             after = pd.concat([entry_bar, after])
-        tr: TradeResult = simulate(trg.direction, trg.ts, trg.entry_close, trg.spread, orb.low, orb.high,
+        tr: TradeResult = simulate(trg.direction, trg.ts, trg.entry_close, trg.spread, sl_lo, sl_hi,
                                    after, capital if cfg.risk.compound else cfg.initial_capital,
                                    cfg.variant, cfg.risk, cfg.trail)
         capital += tr.pnl
+        busy_until = pd.Timestamp(tr.exit_ts)
         eq.append({"ts": tr.exit_ts, "equity": capital})
         row = {
-            "session": s.day, "direction": tr.direction, "variant": cfg.variant,
+            "session": s.day, "window_open": s.open_utc, "direction": tr.direction, "variant": cfg.variant,
             "orb_high": orb.high, "orb_low": orb.low,
             "breakin_ts": trg.breakin_ts, "reentry_ts": trg.reentry_ts, "trigger_ts": trg.ts,
             "reentry_is_trigger_bar": trg.same_bar, "vwap_at_trigger": round(trg.vwap, 2),

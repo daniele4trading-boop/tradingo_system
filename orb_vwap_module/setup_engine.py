@@ -39,6 +39,11 @@ class SetupParams:
     # "inside": le N barre chiudono tutte dentro l'ORB; "not_beyond": nessuna delle N
     # barre ha chiuso oltre il livello che viene rotto (lateralità sopra/sotto il livello).
     range_mode: str = "inside"
+    # "orb": break-in/rientro/trigger sull'ORB. "vwap_cross": nessun break-in, ingresso al
+    # close della barra M5 che attraversa il VWAP di sessione (close oltre, close precedente
+    # dal lato opposto) con volume > media×K; SL = min/max delle ultime `sl_lookback` barre.
+    mode: str = "orb"
+    sl_lookback: int = 6
 
 
 @dataclass
@@ -72,6 +77,7 @@ class Trigger:
     bar_high: float = float("nan")
     bar_low: float = float("nan")
     bar_close: float = float("nan")
+    sl_level: float = float("nan")  # SL proprio del trigger (mode vwap_cross); NaN = ORB
 
 
 @dataclass
@@ -110,7 +116,51 @@ def _volume_ok(p: SetupParams, vol: float, vol_ma: float) -> bool:
     return vol > vol_ma * p.vol_k
 
 
+def run_vwap_cross(bars: pd.DataFrame, s: Session, orb: ORB, p: SetupParams) -> SessionSetupResult:
+    """Modalita' vwap_cross: la prima barra (dopo la fine dell'ORB, che qui vale solo come
+    warm-up del VWAP) che chiude oltre il VWAP venendo dal lato opposto, con volume ok,
+    apre nella direzione dell'attraversamento. I tentativi con volume insufficiente sono
+    contati in vol_checks_failed; ogni attraversamento e' un break-in "armato"."""
+    res = SessionSetupResult(s, orb, {LONG: DirectionState(LONG), SHORT: DirectionState(SHORT)})
+    first = max(1, int((bars.index < s.orb_end_utc).sum()))
+    n = p.sl_lookback
+    for i in range(first, len(bars)):
+        ts, row = bars.index[i], bars.iloc[i]
+        if ts >= s.trigger_deadline_utc:
+            break
+        c, vwap = float(row["close"]), float(row["vwap"])
+        pc, pv = float(bars.iloc[i - 1]["close"]), float(bars.iloc[i - 1]["vwap"])
+        if pd.isna(vwap) or pd.isna(pv):
+            continue
+        if pc <= pv and c > vwap:
+            d = LONG
+        elif pc >= pv and c < vwap:
+            d = SHORT
+        else:
+            continue
+        st = res.dirs[d]
+        vol_ok = _volume_ok(p, float(row["volume"]), float(row["vol_ma"]))
+        if not vol_ok:
+            st.vol_checks_failed += 1
+            st.failed_attempts += 1
+            continue
+        win = bars.iloc[max(0, i - n + 1):i + 1]
+        sl = float(win["low"].min()) if d == LONG else float(win["high"].max())
+        st.state, st.breakin_ts, st.reentry_ts, st.trigger_ts, st.end_ts = "TRIGGERED", ts, ts, ts, ts
+        res.trigger = Trigger(
+            direction=d, ts=ts, breakin_ts=ts, reentry_ts=ts, same_bar=True, entry_close=c,
+            vwap=vwap, spread=float(row["spread"]), volume=float(row["volume"]),
+            vol_ma=float(row["vol_ma"]), vol_filter_on=p.volume_filter, vol_filter_passed=vol_ok,
+            sl_level=sl)
+        other = SHORT if d == LONG else LONG
+        res.dirs[other].state = "DISARMED"
+        break
+    return res
+
+
 def run_session_setup(bars: pd.DataFrame, s: Session, orb: ORB, p: SetupParams) -> SessionSetupResult:
+    if p.mode == "vwap_cross":
+        return run_vwap_cross(bars, s, orb, p)
     """`bars`: barre del timeframe trigger della sessione (colonne open, high, low,
     close, volume, spread, vwap, vol_ma), indice = apertura barra UTC.
     Vengono valutate solo le barre che aprono a partire dalla fine dell'ORB."""

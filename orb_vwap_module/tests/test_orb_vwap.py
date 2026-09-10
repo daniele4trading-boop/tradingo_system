@@ -1,7 +1,7 @@
 """Test del modulo ORB+VWAP su barre sintetiche (nessun dato esterno)."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 import pandas as pd
 import pytest
@@ -312,3 +312,61 @@ def test_variant_b_both_legs_stopped_before_tp1():
 def test_config_dict_serializable():
     d = config_dict(BacktestConfig())
     assert d["session"]["open_time"] == "09:30:00" and d["trail"]["atr_period"] == 14
+
+
+# ---------------------------------------------------------------- ORB rolling / vwap_cross
+
+def test_rolling_windows_h1_and_h4():
+    from orb_vwap_module.session import build_windows
+    spec = SessionSpec(cutoff_time=time(12, 0), orb_tf="30min", rolling_tf="1h")
+    ws = build_windows([session(spec=spec)], spec)
+    # la finestra 16:30 avrebbe l'ORB che termina al cutoff (17:00): esclusa
+    assert [w.open_utc for w in ws] == [datetime(2026, 1, 12, 14, 30), datetime(2026, 1, 12, 15, 30)]
+    assert ws[0].orb_end_utc == datetime(2026, 1, 12, 15, 0)
+    assert ws[-1].cutoff_utc == datetime(2026, 1, 12, 16, 30)
+    assert all(w.sim_end_utc == datetime(2026, 1, 12, 17, 0) for w in ws)
+    spec4 = SessionSpec(cutoff_time=time(16, 0), orb_tf="2h", rolling_tf="4h")
+    ws4 = build_windows([session(spec=spec4)], spec4)
+    assert [(w.open_utc.hour, w.orb_end_utc.hour) for w in ws4] == [(14, 16), (18, 20)]
+
+
+def test_rolling_setup_expires_at_window_end_but_bars_run_to_day_cutoff():
+    spec = SessionSpec(cutoff_time=time(12, 0), orb_tf="30min", rolling_tf="1h")
+    from orb_vwap_module.session import build_windows
+    w = build_windows([session(spec=spec)], spec)[1]              # 15:30-16:30 UTC
+    df = bars([(104, 106, 103, 105)] * 40, start="2026-01-12 15:30", vwap=103.0)
+    b = session_bars(df, w, spec)
+    assert b.index[-1] == pd.Timestamp("2026-01-12 16:55")          # fino al cutoff giornaliero
+    rows = [(104, 106, 103, 105)] * 6 + [(101, 102, 98, 99)] + [(104, 106, 103, 105)] * 33
+    df = bars(rows, start="2026-01-12 15:30", vwap=103.0)
+    r = run_session_setup(df, w, FakeORB(110, 100), SetupParams())
+    assert r.dirs[LONG].state == "TRIGGERED"
+    rows = [(104, 106, 103, 105)] * 6 + [(101, 102, 98, 99)] + [(99, 99.5, 98, 99)] * 33
+    df = bars(rows, start="2026-01-12 15:30", vwap=103.0)
+    r = run_session_setup(df, w, FakeORB(110, 100), SetupParams())
+    assert r.dirs[LONG].state == "EXPIRED" and r.dirs[LONG].end_ts == pd.Timestamp("2026-01-12 16:30")
+
+
+def test_vwap_cross_mode_long_short_volume_and_sl():
+    p = SetupParams(mode="vwap_cross", sl_lookback=3)
+    # ORB (3 barre) → poi close sotto vwap → close sopra vwap = cross long
+    rows = [(100, 101, 99, 100)] * 3 + [(100, 101, 99, 99.5), (99.5, 102, 97, 101.5)]
+    df = bars(rows, vwap=[100.5] * 5)
+    r = run_session_setup(df, session(), FakeORB(101, 99), p)
+    t = r.trigger
+    assert t is not None and t.direction == LONG and t.entry_close == 101.5 and t.sl_level == 97
+    assert r.dirs[SHORT].state == "DISARMED"
+    # short speculare
+    rows = [(100, 102, 99, 101)] * 3 + [(101, 102, 100.6, 101), (101, 103, 98.5, 99.5)]
+    r = run_session_setup(bars(rows, vwap=[100.5] * 5), session(), FakeORB(101, 99), p)
+    assert r.trigger.direction == SHORT and r.trigger.sl_level == 103
+    # nessun attraversamento (resta sopra) → niente trade
+    rows = [(100, 102, 99, 101)] * 3 + [(101, 102, 100.6, 101), (101, 103, 100.7, 102)]
+    r = run_session_setup(bars(rows, vwap=[100.5] * 5), session(), FakeORB(101, 99), p)
+    assert r.trigger is None
+    # filtro volume: cross con volume basso scartato, il successivo passa
+    pv = SetupParams(mode="vwap_cross", volume_filter=True)
+    rows = [(100, 101, 99, 100)] * 3 + [(100, 101, 99, 99.5), (99.5, 102, 99, 101.5, 50),
+                                        (101.5, 102, 99, 99.5), (99.5, 102, 99, 101.5, 200)]
+    r = run_session_setup(bars(rows, vwap=[100.5] * 7), session(), FakeORB(101, 99), pv)
+    assert r.trigger.ts == pd.Timestamp("2026-01-12 15:15") and r.dirs[LONG].vol_checks_failed == 1

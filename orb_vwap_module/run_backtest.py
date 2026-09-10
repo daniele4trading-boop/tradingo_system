@@ -28,6 +28,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="rientro + trigger VWAP obbligatori sulla barra subito dopo il break-in")
     ap.add_argument("--min-range-bars", type=int, default=0,
                     help="lateralità: N barre chiuse dentro l'ORB prima del break-in")
+    ap.add_argument("--rolling-tf", default=None, help="ORB rolling: finestre di 1h/4h dall'apertura (con --orb-tf 30min/2h)")
+    ap.add_argument("--orb-tf", default="15min")
+    ap.add_argument("--setup-mode", choices=["orb", "vwap_cross"], default="orb")
+    ap.add_argument("--sl-lookback", type=int, default=6, help="vwap_cross: SL = min/max delle ultime N barre")
     ap.add_argument("--range-mode", choices=["inside", "not_beyond"], default="inside")
     ap.add_argument("--atr-period", type=int, default=14)
     ap.add_argument("--atr-mult", type=float, default=2.0)
@@ -42,10 +46,10 @@ def main(argv: list[str] | None = None) -> int:
     hh, mm = a.cutoff.split(":")
     cfg = BacktestConfig(
         symbol=a.symbol, months=a.months, end=a.end, initial_capital=a.capital,
-        session=SessionSpec(cutoff_time=time(int(hh), int(mm))),
+        session=SessionSpec(cutoff_time=time(int(hh), int(mm)), orb_tf=a.orb_tf, rolling_tf=a.rolling_tf),
         setup=SetupParams(volume_filter=a.volume_filter, vol_ma_n=a.vol_n, vol_k=a.vol_k,
                           immediate_trigger=a.immediate_trigger, min_range_bars=a.min_range_bars,
-                          range_mode=a.range_mode),
+                          range_mode=a.range_mode, mode=a.setup_mode, sl_lookback=a.sl_lookback),
         risk=RiskParams(sl_buffer=a.sl_buffer, min_risk_dist=a.min_risk_dist),
         trail=TrailParams(a.atr_period, a.atr_mult),
     )
