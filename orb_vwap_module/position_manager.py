@@ -126,15 +126,17 @@ def entry_price(direction: str, close: float, spread: float) -> float:
 
 def simulate(direction: str, entry_ts: pd.Timestamp, entry_close: float, entry_spread: float,
              orb_low: float, orb_high: float, bars_after: pd.DataFrame, capital: float,
-             variant: str, rp: RiskParams, tp: TrailParams | None = None) -> TradeResult:
+             variant: str, rp: RiskParams, tp: TrailParams | None = None,
+             tp_level: float | None = None) -> TradeResult:
     """`bars_after`: barre della sessione successive alla barra trigger, con
-    colonne open/high/low/close/spread/atr."""
+    colonne open/high/low/close/spread/atr. `tp_level`: TP a livello fisso
+    (es. estremo opposto dell'ORB) al posto di RR×rischio."""
     sgn = _sign(direction)
     entry = entry_price(direction, entry_close, entry_spread)
     sl = (orb_low - rp.sl_buffer) if direction == LONG else (orb_high + rp.sl_buffer)
     risk_dist = sgn * (entry - sl)
     risk_money = capital * rp.risk_pct / 100.0
-    tp1 = entry + sgn * rp.rr_tp1 * risk_dist
+    tp1 = tp_level if tp_level is not None else entry + sgn * rp.rr_tp1 * risk_dist
 
     if variant == "A":
         lots = size_lots(risk_money, risk_dist, rp)
