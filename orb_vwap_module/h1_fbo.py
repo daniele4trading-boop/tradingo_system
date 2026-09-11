@@ -48,6 +48,9 @@ class H1FboConfig:
     vol_k: float = 1.0
     volume_filter: bool = True
     trigger_tf: str = "M1"              # timeframe di break-out/trigger (M1 richiesto; M5 come ripiego se lo storico M1 e' corto)
+    vwap_tf: str = "M15"                # "M15": VWAP cumulato M15 da `session_open`; "H1": cumulato sulle H1 chiuse da `first_hour`
+    vol_mode: str = "session"           # "session": media M1 da inizio sessione; "lastN": media delle ultime `vol_n` M1
+    vol_n: int = 5
     risk: RiskParams = field(default_factory=RiskParams)
 
 
@@ -72,23 +75,30 @@ def prepare(data_dir: str, cfg: H1FboConfig) -> tuple[pd.DataFrame, pd.DataFrame
     m15 = m15[(m15.index > start - pd.Timedelta(days=3)) & (m15.index <= end)].copy()
     spec = SessionSpec(tz=cfg.tz, open_time=cfg.session_open, cutoff_time=cfg.close_time)
     days = build_sessions(m1.index, spec)
-    m15["vwap"] = session_vwap(m15, days, spec)
     m1["atr"] = float("nan")
     h1 = m1.resample("1h").agg({"open": "first", "high": "max", "low": "min", "close": "last",
                                 "volume": "sum"}).dropna()
-    return m1, m15, h1, days
+    if cfg.vwap_tf == "H1":
+        spec_h1 = SessionSpec(tz=cfg.tz, open_time=cfg.first_hour, cutoff_time=cfg.close_time)
+        h1["vwap"] = session_vwap(h1, build_sessions(h1.index, spec_h1), spec_h1)
+        vwap_df = h1
+    else:
+        m15["vwap"] = session_vwap(m15, days, spec)
+        vwap_df = m15
+    return m1, vwap_df, h1, days
 
 
-def _vwap_at(m15: pd.DataFrame, ts: pd.Timestamp) -> float:
-    """VWAP cumulato dell'ultima M15 chiusa prima dell'apertura della M1 `ts`."""
-    closed = m15.loc[:ts - pd.Timedelta(minutes=15)]
+def _vwap_at(vwap_df: pd.DataFrame, ts: pd.Timestamp, period_min: int) -> float:
+    """VWAP cumulato dell'ultima barra (M15 o H1) chiusa prima dell'apertura della M1 `ts`."""
+    closed = vwap_df.loc[:ts - pd.Timedelta(minutes=period_min)]
     if closed.empty:
         return float("nan")
     return float(closed["vwap"].iloc[-1])
 
 
 def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1FboResult:
-    m1, m15, h1, days = prepared or prepare(data_dir, cfg)
+    m1, vwap_df, h1, days = prepared or prepare(data_dir, cfg)
+    vwap_period = 60 if cfg.vwap_tf == "H1" else 15
     spec = SessionSpec(tz=cfg.tz, open_time=cfg.session_open, cutoff_time=cfg.close_time)
     capital = cfg.initial_capital
     trades: list[dict] = []
@@ -104,7 +114,10 @@ def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1Fbo
             continue
         cum_vol = sess_m1["volume"].astype(float).cumsum()
         cum_n = pd.Series(range(1, len(sess_m1) + 1), index=sess_m1.index, dtype=float)
-        vol_mean_prev = (cum_vol / cum_n).shift(1)  # media delle M1 chiuse prima della corrente
+        if cfg.vol_mode == "lastN":
+            vol_mean_prev = sess_m1["volume"].astype(float).rolling(cfg.vol_n).mean().shift(1)
+        else:
+            vol_mean_prev = (cum_vol / cum_n).shift(1)  # media delle M1 chiuse prima della corrente
 
         busy_until: pd.Timestamp | None = None
         h0 = _utc(spec, d, cfg.first_hour)
@@ -138,7 +151,7 @@ def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1Fbo
                     if side:
                         row.update(breakout_ts=ts, breakout_side=side, state="BREAKOUT_NO_TRIGGER")
                     continue
-                vw = _vwap_at(m15, ts)
+                vw = _vwap_at(vwap_df, ts, vwap_period)
                 if pd.isna(vw):
                     continue
                 direction = SHORT if side == "UP" else LONG
@@ -189,6 +202,9 @@ def summarize(res: H1FboResult) -> dict:
     n = len(t)
     out = {
         "trigger_tf": res.config.trigger_tf,
+        "vwap_tf": res.config.vwap_tf,
+        "vol_mode": res.config.vol_mode,
+        "vol_n": res.config.vol_n,
         "cutoff": res.config.cutoff.strftime("%H:%M"),
         "window_min": res.config.window_min,
         "volume_filter": res.config.volume_filter,
