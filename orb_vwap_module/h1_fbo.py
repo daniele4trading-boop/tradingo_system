@@ -24,7 +24,7 @@ from datetime import date, datetime, time
 import pandas as pd
 
 from .backtester import load_symbol
-from .position_manager import RiskParams, TradeResult, simulate
+from .position_manager import RiskParams, TradeResult, entry_price, simulate
 from .report import max_drawdown
 from .session import SessionSpec, build_sessions
 from .setup_engine import LONG, SHORT
@@ -51,6 +51,10 @@ class H1FboConfig:
     vwap_tf: str = "M15"                # "M15": VWAP cumulato M15 da `session_open`; "H1": cumulato sulle H1 chiuse da `first_hour`
     vol_mode: str = "session"           # "session": media M1 da inizio sessione; "lastN": media delle ultime `vol_n` M1
     vol_n: int = 5
+    entry_mode: str = "vwap"            # "vwap": M1 col corpo oltre il VWAP; "breakin": prima M1 col corpo rientrato nel range H1
+    tp_mode: str = "orb"                # "orb": estremo H1 opposto; "rr": risk.rr_tp1 x rischio; "vwap": livello VWAP
+    sl_mode: str = "orb"                # "orb": estremo H1 rotto (+risk.sl_buffer); "fixed": `sl_dist` $ dall'entry (size fissa)
+    sl_dist: float = 5.0
     risk: RiskParams = field(default_factory=RiskParams)
 
 
@@ -155,7 +159,10 @@ def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1Fbo
                 if pd.isna(vw):
                     continue
                 direction = SHORT if side == "UP" else LONG
-                beyond = body_hi < vw if direction == SHORT else body_lo > vw
+                if cfg.entry_mode == "breakin":
+                    beyond = lo < body_lo and body_hi < hi
+                else:
+                    beyond = body_hi < vw if direction == SHORT else body_lo > vw
                 if not beyond:
                     continue
                 vm = vol_mean_prev.get(ts, float("nan"))
@@ -163,12 +170,23 @@ def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1Fbo
                 row["state"] = "TRIGGER_NO_VOLUME" if not vol_ok else row["state"]
                 if not vol_ok:
                     continue
-                sl_side, tp_lvl = (hi, lo) if direction == SHORT else (lo, hi)
                 if not (lo < c < hi):
                     row["state"] = "TRIGGER_OUTSIDE_RANGE"
                     break
+                tp_lvl: float | None = lo if direction == SHORT else hi
+                if cfg.tp_mode == "rr":
+                    tp_lvl = None
+                elif cfg.tp_mode == "vwap":
+                    if (direction == SHORT and vw >= c) or (direction == LONG and vw <= c):
+                        row["state"] = "VWAP_NOT_IN_PROFIT"
+                        break
+                    tp_lvl = vw
                 after = m1[(m1.index > ts) & (m1.index < sess_close)]
-                tr: TradeResult = simulate(direction, ts, c, float(b["spread"]), lo, hi, after,
+                sl_lo, sl_hi = lo, hi
+                if cfg.sl_mode == "fixed":
+                    ep = entry_price(direction, c, float(b["spread"]))
+                    sl_lo, sl_hi = ep - cfg.sl_dist, ep + cfg.sl_dist
+                tr: TradeResult = simulate(direction, ts, c, float(b["spread"]), sl_lo, sl_hi, after,
                                            capital, "A", cfg.risk, None, tp_level=tp_lvl)
                 if tr.risk_dist <= max(0.0, cfg.risk.min_risk_dist):
                     row["state"] = "BAD_RISK"
