@@ -31,6 +31,7 @@ class RiskParams:
     min_lot: float = 0.01
     compound: bool = True            # rischio sul capitale corrente (True) o iniziale (False)
     min_risk_dist: float = 0.0       # in prezzo: sotto questa distanza entry-SL il trigger non apre (0 = off)
+    commission_per_lot: float = 0.0  # $ per lotto round-turn, addebitati alla chiusura di ogni gamba
 
 
 @dataclass
@@ -95,7 +96,7 @@ def _sign(direction: str) -> int:
 
 
 def _pnl(direction: str, entry: float, exit_: float, lots: float, rp: RiskParams) -> float:
-    return _sign(direction) * (exit_ - entry) * lots * rp.contract_size
+    return _sign(direction) * (exit_ - entry) * lots * rp.contract_size - lots * rp.commission_per_lot
 
 
 def _fill(direction: str, level: float, bar: pd.Series, spread: float, side: str) -> float:
