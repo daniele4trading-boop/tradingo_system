@@ -1,0 +1,11 @@
+MetaTrader5
+numpy
+pandas
+scipy
+statsmodels
+pandas-stubs
+openpyxl
+streamlit
+requests
+APScheduler
+python-dateutil
