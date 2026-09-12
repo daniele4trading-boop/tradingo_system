@@ -1,0 +1,10 @@
+feature,win_rate_when_true,trades_true,win_true,loss_true,true_in_wins_pct,true_in_losses_pct
+dir_engulf,0.42857142857142855,7,3,4,0.375,0.21052631578947367
+outside_bar,0.29411764705882354,17,5,12,0.625,0.631578947368421
+trend_with_trade,0.2857142857142857,7,2,5,0.25,0.2631578947368421
+trend_against_trade,0.25,8,2,6,0.25,0.3157894736842105
+fvg_bull,0.0,4,0,4,0.0,0.21052631578947367
+fvg_bear,0.0,1,0,1,0.0,0.05263157894736842
+dir_fvg_confirm,,0,0,0,0.0,0.0
+dir_pinbar,,0,0,0,0.0,0.0
+inside_bar,,0,0,0,0.0,0.0
