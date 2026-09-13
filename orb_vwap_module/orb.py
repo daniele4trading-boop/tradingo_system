@@ -15,6 +15,8 @@ class ORB:
     start_utc: pd.Timestamp
     end_utc: pd.Timestamp
     n_bars: int
+    rsi_high: float = float("nan")   # RSI (rsi_tf) alla chiusura della barra che ha fatto il massimo
+    rsi_low: float = float("nan")
 
 
 def compute_orb(orb_df: pd.DataFrame, s: Session, spec: SessionSpec) -> ORB | None:

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from .orb import ORB
+from .rsi_liquidity_filter import ConfirmParams, depth_ok, divergence_ok
 from .session import Session
 
 LONG, SHORT = "long", "short"
@@ -44,6 +45,10 @@ class SetupParams:
     # dal lato opposto) con volume > media×K; SL = min/max delle ultime `sl_lookback` barre.
     mode: str = "orb"
     sl_lookback: int = 6
+    # Filtri di conferma opzionali (RSI divergenza / test 50 %): valutati sul trigger; se
+    # falliscono il tentativo e' scartato e la direzione torna IDLE. Richiedono in `bars`
+    # la colonna `rsi` (ultima barra rsi_tf chiusa) e in `orb` rsi_high/rsi_low.
+    confirm: ConfirmParams = field(default_factory=ConfirmParams)
 
 
 @dataclass
@@ -57,6 +62,9 @@ class DirectionState:
     vol_checks_failed: int = 0   # barre che avevano il trigger di prezzo ma non il volume
     failed_attempts: int = 0     # break-in senza rientro+trigger immediato (solo immediate_trigger)
     range_rejects: int = 0       # break-in scartati per lateralità insufficiente
+    confirm_rejects: int = 0     # trigger scartati dai filtri RSI-divergenza / test 50 %
+    sweep_extreme: float = float("nan")   # estremo dello sweep dal break-in in poi
+    sweep_rsi: float = float("nan")       # RSI (ultima rsi_tf chiusa) estremo durante lo sweep
 
 
 @dataclass
@@ -78,6 +86,9 @@ class Trigger:
     bar_low: float = float("nan")
     bar_close: float = float("nan")
     sl_level: float = float("nan")  # SL proprio del trigger (mode vwap_cross); NaN = ORB
+    sweep_extreme: float = float("nan")
+    sweep_rsi: float = float("nan")
+    level_rsi: float = float("nan")
 
 
 @dataclass
@@ -106,6 +117,42 @@ def _lateral(direction: str, close: float, orb: ORB, p: SetupParams) -> bool:
     if p.range_mode == "not_beyond":
         return not _beyond(direction, close, orb)
     return _inside(close, orb)
+
+
+def _track_sweep(st: DirectionState, row: pd.Series) -> None:
+    hi, lo = float(row["high"]), float(row["low"])
+    r = float(row["rsi"]) if "rsi" in row.index else float("nan")
+    if st.direction == LONG:      # sweep sotto il minimo
+        st.sweep_extreme = lo if pd.isna(st.sweep_extreme) else min(st.sweep_extreme, lo)
+        st.sweep_rsi = r if pd.isna(st.sweep_rsi) else (min(st.sweep_rsi, r) if not pd.isna(r) else st.sweep_rsi)
+    else:
+        st.sweep_extreme = hi if pd.isna(st.sweep_extreme) else max(st.sweep_extreme, hi)
+        st.sweep_rsi = r if pd.isna(st.sweep_rsi) else (max(st.sweep_rsi, r) if not pd.isna(r) else st.sweep_rsi)
+
+
+def _confirm_ok(st: DirectionState, orb: ORB, p: SetupParams) -> bool:
+    """Filtri di conferma sul trigger; con i flag a False e' sempre True."""
+    cp = p.confirm
+    if not cp.active:
+        return True
+    side = "DOWN" if st.direction == LONG else "UP"
+    level = orb.low if st.direction == LONG else orb.high
+    if cp.require_50pct_test and not depth_ok(side, level, st.sweep_extreme, orb.high - orb.low, cp):
+        return False
+    if cp.require_rsi_divergence and not divergence_ok(side, _level_rsi(orb, st.direction, p), st.sweep_rsi, cp):
+        return False
+    return True
+
+
+def _level_rsi(orb: ORB, direction: str, p: SetupParams) -> float:
+    if not p.confirm.require_rsi_divergence:
+        return float("nan")
+    return orb.rsi_low if direction == LONG else orb.rsi_high
+
+
+def _reset(st: DirectionState) -> None:
+    st.state, st.breakin_ts, st.reentry_ts = "IDLE", None, None
+    st.sweep_extreme, st.sweep_rsi = float("nan"), float("nan")
 
 
 def _volume_ok(p: SetupParams, vol: float, vol_ma: float) -> bool:
@@ -187,10 +234,14 @@ def run_session_setup(bars: pd.DataFrame, s: Session, orb: ORB, p: SetupParams) 
                         st.range_rejects += 1
                         continue
                     st.state, st.breakin_ts = "ARMED", ts
+                    if p.confirm.active:
+                        _track_sweep(st, row)
                 continue
             if st.state == "CONFIRMED" and beyond:
                 st.state, st.end_ts = "INVALID", ts
                 continue
+            if p.confirm.active:
+                _track_sweep(st, row)
             if st.state == "ARMED":
                 if p.immediate_trigger:
                     level = float(bars.iloc[i - 1]["vwap"])
@@ -211,6 +262,11 @@ def run_session_setup(bars: pd.DataFrame, s: Session, orb: ORB, p: SetupParams) 
                         st.failed_attempts += 1
                         st.state, st.breakin_ts = "IDLE", None
                         continue
+                    if not _confirm_ok(st, orb, p):
+                        st.confirm_rejects += 1
+                        st.failed_attempts += 1
+                        _reset(st)
+                        continue
                     entry = max(o, level) if d == LONG else min(o, level)
                     st.state, st.reentry_ts, st.trigger_ts, st.end_ts = "TRIGGERED", ts, ts, ts
                     res.trigger = Trigger(
@@ -218,7 +274,9 @@ def run_session_setup(bars: pd.DataFrame, s: Session, orb: ORB, p: SetupParams) 
                         entry_close=entry, vwap=level, spread=float(row["spread"]),
                         volume=float(row["volume"]), vol_ma=float(row["vol_ma"]),
                         vol_filter_on=p.volume_filter, vol_filter_passed=vol_ok,
-                        intrabar=True, bar_high=hi, bar_low=lo, bar_close=c)
+                        intrabar=True, bar_high=hi, bar_low=lo, bar_close=c,
+                        sweep_extreme=st.sweep_extreme, sweep_rsi=st.sweep_rsi,
+                        level_rsi=_level_rsi(orb, d, p))
                     break
                 if beyond:
                     continue
@@ -229,12 +287,19 @@ def run_session_setup(bars: pd.DataFrame, s: Session, orb: ORB, p: SetupParams) 
                 if not vol_ok:
                     st.vol_checks_failed += 1
                     continue
+                if not _confirm_ok(st, orb, p):
+                    st.confirm_rejects += 1
+                    st.failed_attempts += 1
+                    _reset(st)
+                    continue
                 st.state, st.trigger_ts, st.end_ts = "TRIGGERED", ts, ts
                 res.trigger = Trigger(
                     direction=d, ts=ts, breakin_ts=st.breakin_ts, reentry_ts=st.reentry_ts,
                     same_bar=(st.reentry_ts == ts), entry_close=c, vwap=vwap,
                     spread=float(row["spread"]), volume=float(row["volume"]),
-                    vol_ma=float(row["vol_ma"]), vol_filter_on=p.volume_filter, vol_filter_passed=vol_ok)
+                    vol_ma=float(row["vol_ma"]), vol_filter_on=p.volume_filter, vol_filter_passed=vol_ok,
+                    sweep_extreme=st.sweep_extreme, sweep_rsi=st.sweep_rsi,
+                    level_rsi=_level_rsi(orb, d, p))
         if res.trigger is not None:
             other = SHORT if res.trigger.direction == LONG else LONG
             if res.dirs[other].state in ("ARMED", "CONFIRMED"):

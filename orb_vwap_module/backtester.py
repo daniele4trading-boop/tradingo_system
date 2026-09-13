@@ -1,13 +1,14 @@
 """Orchestrazione del backtest: dati → sessioni → ORB/VWAP → setup → posizione."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 
 import pandas as pd
 
 from .orb import compute_orb
 from .position_manager import RiskParams, TrailParams, TradeResult, simulate
+from .rsi_liquidity_filter import HtfHolder, align_closed, level_rsi, rsi
 from .session import SessionSpec, build_sessions, build_windows, session_bars
 from .setup_engine import LONG, SHORT, SetupParams, run_session_setup
 from .vwap import atr, session_vwap, volume_ma
@@ -77,6 +78,14 @@ def prepare(data_dir: str | Path, cfg: BacktestConfig) -> tuple[pd.DataFrame, pd
     trig = full[full.index >= start].copy()
     trig.attrs["atr_period"] = cfg.trail.atr_period
     trig.attrs["vol_ma_n"] = cfg.setup.vol_ma_n
+    cp = cfg.setup.confirm
+    if cp.active:
+        htf = load_symbol(data_dir, cfg.symbol, cp.rsi_tf)
+        htf = htf[(htf.index > start - pd.Timedelta(days=10)) & (htf.index <= end)].copy()
+        htf["rsi"] = rsi(htf["close"], cp.rsi_period)
+        trig["rsi"] = align_closed(htf["rsi"], cp.rsi_tf, trig.index)
+        trig.attrs["rsi_htf"] = HtfHolder(htf)
+        trig.attrs["rsi_tf"] = cp.rsi_tf
     orbdf = orbdf[(orbdf.index >= start) & (orbdf.index <= end)]
     days = build_sessions(trig.index, cfg.session)
     trig["vwap"] = session_vwap(trig, days, cfg.session)
@@ -92,6 +101,11 @@ def run(data_dir: str | Path, cfg: BacktestConfig, prepared: tuple | None = None
         trig = trig.copy()
         trig["atr"] = atr(full, cfg.trail.atr_period).reindex(trig.index)
         trig["vol_ma"] = volume_ma(full, cfg.setup.vol_ma_n).reindex(trig.index)
+    cp = cfg.setup.confirm
+    holder: HtfHolder | None = trig.attrs.get("rsi_htf") if cp.active else None
+    if cp.active and (holder is None or trig.attrs.get("rsi_tf") != cp.rsi_tf):
+        raise ValueError("filtri di conferma attivi: `prepare` va chiamato con la stessa `confirm`")
+    rsi_htf = holder.df if holder is not None else None
     capital = cfg.initial_capital
     trades: list[dict] = []
     setups: list[dict] = []
@@ -104,6 +118,9 @@ def run(data_dir: str | Path, cfg: BacktestConfig, prepared: tuple | None = None
         orb = compute_orb(orbdf, s, cfg.session)
         if orb is None:
             continue
+        if rsi_htf is not None:
+            orb = replace(orb, rsi_high=level_rsi(rsi_htf, s.open_utc, s.orb_end_utc, "UP"),
+                          rsi_low=level_rsi(rsi_htf, s.open_utc, s.orb_end_utc, "DOWN"))
         bars = session_bars(trig, s, cfg.session)
         if bars.empty:
             continue
@@ -120,6 +137,7 @@ def run(data_dir: str | Path, cfg: BacktestConfig, prepared: tuple | None = None
                            "trigger_ts": st.trigger_ts, "end_ts": st.end_ts,
                            "vol_filter_rejections": st.vol_checks_failed,
                            "failed_attempts": st.failed_attempts, "range_rejects": st.range_rejects,
+                           "confirm_rejects": st.confirm_rejects,
                            "orb_high": orb.high, "orb_low": orb.low}
             setups.append(setup_rows[d])
         trg = res.trigger
@@ -167,6 +185,9 @@ def run(data_dir: str | Path, cfg: BacktestConfig, prepared: tuple | None = None
             "exit_ts": tr.exit_ts, "pnl": round(tr.pnl, 2), "rr_realized": round(tr.rr, 3),
             "outcome": tr.outcome, "vol_filter_on": trg.vol_filter_on, "vol_filter_passed": trg.vol_filter_passed,
             "trigger_volume": trg.volume, "trigger_vol_ma": round(trg.vol_ma, 1) if not pd.isna(trg.vol_ma) else None,
+            "sweep_extreme": trg.sweep_extreme, "sweep_rsi": trg.sweep_rsi, "level_rsi": trg.level_rsi,
+            "sweep_depth_pct": round(abs(trg.sweep_extreme - (orb.low if trg.direction == LONG else orb.high)) / (orb.high - orb.low), 3)
+            if not pd.isna(trg.sweep_extreme) and orb.high > orb.low else None,
             "equity_after": round(capital, 2),
         }
         trades.append(row)

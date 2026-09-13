@@ -26,6 +26,7 @@ import pandas as pd
 from .backtester import load_symbol
 from .position_manager import RiskParams, TradeResult, entry_price, simulate
 from .report import max_drawdown
+from .rsi_liquidity_filter import ConfirmParams, HtfHolder, align_closed, depth_ok, divergence_ok, level_rsi, rsi
 from .session import SessionSpec, build_sessions
 from .setup_engine import LONG, SHORT
 from .vwap import session_vwap
@@ -56,6 +57,7 @@ class H1FboConfig:
     sl_mode: str = "orb"                # "orb": estremo H1 rotto (+risk.sl_buffer); "fixed": `sl_dist` $ dall'entry (size fissa)
     sl_dist: float = 5.0
     risk: RiskParams = field(default_factory=RiskParams)
+    confirm: ConfirmParams = field(default_factory=ConfirmParams)  # filtri RSI-divergenza / test 50 %
 
 
 @dataclass
@@ -76,6 +78,12 @@ def prepare(data_dir: str, cfg: H1FboConfig) -> tuple[pd.DataFrame, pd.DataFrame
     end = pd.Timestamp(cfg.end) if cfg.end else m1.index[-1]
     start = end - pd.DateOffset(months=cfg.months)
     m1 = m1[(m1.index > start) & (m1.index <= end)].copy()
+    if cfg.confirm.active:
+        htf = m15 if cfg.confirm.rsi_tf == "M15" else load_symbol(data_dir, cfg.symbol, cfg.confirm.rsi_tf)
+        htf = htf[(htf.index > start - pd.Timedelta(days=10)) & (htf.index <= end)].copy()
+        htf["rsi"] = rsi(htf["close"], cfg.confirm.rsi_period)
+        m1["rsi"] = align_closed(htf["rsi"], cfg.confirm.rsi_tf, m1.index)
+        m1.attrs["rsi_htf"] = HtfHolder(htf)
     m15 = m15[(m15.index > start - pd.Timedelta(days=3)) & (m15.index <= end)].copy()
     spec = SessionSpec(tz=cfg.tz, open_time=cfg.session_open, cutoff_time=cfg.close_time)
     days = build_sessions(m1.index, spec)
@@ -102,6 +110,11 @@ def _vwap_at(vwap_df: pd.DataFrame, ts: pd.Timestamp, period_min: int) -> float:
 
 def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1FboResult:
     m1, vwap_df, h1, days = prepared or prepare(data_dir, cfg)
+    cp = cfg.confirm
+    if cp.active and "rsi" not in m1.columns:
+        raise ValueError("filtri di conferma attivi: `prepare` va chiamato con la stessa `confirm`")
+    holder: HtfHolder | None = m1.attrs.get("rsi_htf") if cp.active else None
+    rsi_htf: pd.DataFrame | None = holder.df if holder is not None else None
     vwap_period = 60 if cfg.vwap_tf == "H1" else 15
     spec = SessionSpec(tz=cfg.tz, open_time=cfg.session_open, cutoff_time=cfg.close_time)
     capital = cfg.initial_capital
@@ -144,6 +157,9 @@ def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1Fbo
                 wins.append(row)
                 continue
             side: str | None = None
+            sweep_ext = float("nan")   # estremo raggiunto dallo sweep (max high / min low)
+            sweep_rsi = float("nan")   # RSI estremo (rsi_tf, ultima chiusa) durante lo sweep
+            lvl_rsi = float("nan")
             for ts, b in wbars.iterrows():
                 o, c = float(b["open"]), float(b["close"])
                 body_lo, body_hi = min(o, c), max(o, c)
@@ -154,7 +170,20 @@ def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1Fbo
                         side = "DOWN"
                     if side:
                         row.update(breakout_ts=ts, breakout_side=side, state="BREAKOUT_NO_TRIGGER")
+                        if cp.active:
+                            sweep_ext = float(b["high"]) if side == "UP" else float(b["low"])
+                            sweep_rsi = float(b["rsi"])
+                            if rsi_htf is not None:
+                                lvl_rsi = level_rsi(rsi_htf, orb_start, orb_end, side)
                     continue
+                if cp.active:
+                    r = float(b["rsi"])
+                    if side == "UP":
+                        sweep_ext = max(sweep_ext, float(b["high"]))
+                        sweep_rsi = r if pd.isna(sweep_rsi) else max(sweep_rsi, r)
+                    else:
+                        sweep_ext = min(sweep_ext, float(b["low"]))
+                        sweep_rsi = r if pd.isna(sweep_rsi) else min(sweep_rsi, r)
                 vw = _vwap_at(vwap_df, ts, vwap_period)
                 if pd.isna(vw):
                     continue
@@ -172,6 +201,12 @@ def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1Fbo
                     continue
                 if not (lo < c < hi):
                     row["state"] = "TRIGGER_OUTSIDE_RANGE"
+                    break
+                if cp.require_50pct_test and not depth_ok(side, hi if side == "UP" else lo, sweep_ext, hi - lo, cp):
+                    row["state"] = "REJECT_DEPTH"
+                    break
+                if cp.require_rsi_divergence and not divergence_ok(side, lvl_rsi, sweep_rsi, cp):
+                    row["state"] = "REJECT_RSI"
                     break
                 tp_lvl: float | None = lo if direction == SHORT else hi
                 if cfg.tp_mode == "rr":
@@ -200,6 +235,8 @@ def run(data_dir: str, cfg: H1FboConfig, prepared: tuple | None = None) -> H1Fbo
                     "breakout_ts": row["breakout_ts"], "breakout_side": side,
                     "trigger_ts": ts, "direction": direction, "vwap_m15": vw,
                     "volume": float(b["volume"]), "vol_mean_sess": vm,
+                    "sweep_extreme": sweep_ext, "sweep_depth_pct": (abs(sweep_ext - (hi if side == "UP" else lo)) / (hi - lo)) if cp.active and hi > lo else float("nan"),
+                    "level_rsi": lvl_rsi, "sweep_rsi": sweep_rsi,
                     "entry": tr.entry_price, "sl": tr.sl, "tp": tr.tp1,
                     "risk_dist": tr.risk_dist, "rr_target": (abs(tr.tp1 - tr.entry_price) / tr.risk_dist),
                     "lots": leg.lots, "exit_ts": leg.exit_ts, "exit_price": leg.exit_price,
@@ -230,6 +267,12 @@ def summarize(res: H1FboResult) -> dict:
         "windows": len(w),
         "breakouts": int(w["breakout_ts"].notna().sum()) if len(w) else 0,
         "trigger_no_volume": int((w["state"] == "TRIGGER_NO_VOLUME").sum()) if len(w) else 0,
+        "reject_depth": int((w["state"] == "REJECT_DEPTH").sum()) if len(w) else 0,
+        "reject_rsi": int((w["state"] == "REJECT_RSI").sum()) if len(w) else 0,
+        "require_rsi_divergence": res.config.confirm.require_rsi_divergence,
+        "require_50pct_test": res.config.confirm.require_50pct_test,
+        "rsi_tf": res.config.confirm.rsi_tf,
+        "rsi_strict": res.config.confirm.rsi_strict,
         "trades": n,
         "wins": 0, "losses": 0, "be": 0, "win_rate": 0.0, "avg_rr": 0.0, "avg_rr_target": 0.0,
         "profit_factor": 0.0, "pnl": 0.0, "pnl_pct": 0.0, "max_dd": 0.0, "max_dd_pct": 0.0,
