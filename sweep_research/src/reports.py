@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+from pathlib import Path
+
+import pandas as pd
+
+from .schema import schema_registry
+
+
+def _table(headers: list[str], rows: list[list[object]]) -> list[str]:
+    lines = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
+    lines.extend("| " + " | ".join(str(value) for value in row) + " |" for row in rows)
+    return lines
+
+
+NOTES_PATH = Path(__file__).resolve().parents[1] / "NOTES_DUKASCOPY.md"
+
+
+def _notes(path: Path) -> list[str]:
+    if not path.exists():
+        return ["Nessuna nota (file NOTES_DUKASCOPY.md assente)."]
+    return path.read_text().strip().splitlines()
+
+
+def write_reports(events, cfg, leakage: dict, missing: dict, inventory: dict | None = None) -> None:
+    root = Path(cfg.reports_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    specs = schema_registry(list(events.columns))
+    schema_rows = [
+        [
+            s.name, s.definition, s.unit, s.source, s.proxy_or_missing, s.horizon,
+            "sì" if s.is_outcome else "no",
+        ]
+        for s in specs
+    ]
+    (root / "SCHEMA.md").write_text(
+        "# SCHEMA\n\n" + "\n".join(_table(
+            ["Nome", "Definizione", "Unità", "Fonte", "Proxy/missing", "Orizzonte", "Outcome"], schema_rows
+        )) + "\n"
+    )
+    event_rows = []
+    if not events.empty:
+        grouped = events.groupby(["tf", "level_type", "dir"], dropna=False)
+        for key, frame in grouped:
+            event_rows.append([*key, len(frame), frame["event_ts_utc"].min(), frame["event_ts_utc"].max()])
+    inventory_rows = []
+    for key, value in (inventory or {}).items():
+        if isinstance(value, dict):
+            inventory_rows.append([
+                key, value.get("rows", ""), value.get("min_ts", ""),
+                value.get("max_ts", ""), "missing" if value.get("missing") else value.get("files", ""),
+            ])
+    findings = [
+        "# FINDINGS", "",
+        "## Inventario dati", "",
+        *_table(["Simbolo/timeframe", "Righe", "Min timestamp", "Max timestamp", "File"], inventory_rows),
+        "", "## Conteggi eventi", "",
+        *_table(["TF", "Level type", "Dir", "Totale", "Da", "A"], event_rows),
+        "", "## Feature calcolate / proxy / mancanti", "",
+        *_table(["Feature", "Fonte", "Proxy/missing", "Outcome"], [
+            [s.name, s.source, s.proxy_or_missing, "sì" if s.is_outcome else "no"] for s in specs
+        ]),
+        "", "## Operazioni Dukascopy", "", *_notes(NOTES_PATH),
+        "", "## Test statistici eseguiti: 0 (S0 non esegue test)",
+        "", "## Cosa NON ha funzionato", "",
+    ]
+    missing_rows = [[name, "missing" if value else "available"] for name, value in missing.items()]
+    tick_missing = int(events["ticks_missing"].sum()) if "ticks_missing" in events else 0
+    findings.extend(_table(
+        ["Fonte", "Stato"], missing_rows + [["tick days", f"{tick_missing} eventi senza tick"]]
+    ))
+    findings.extend(["", "## Esito anti-leakage", "",
+                     f"- cut count: {leakage.get('n_cuts', 0)}",
+                     f"- compared events: {leakage.get('n_events', 0)}",
+                     f"- verified columns: {leakage.get('verified_columns', 0)}",
+                     f"- failed columns: {', '.join(leakage.get('columns_failed', [])) or 'nessuno'}"])
+    (root / "FINDINGS.md").write_text("\n".join(findings) + "\n")
+
+
+def regenerate(cfg, output_dir: str | Path) -> None:
+    """Rigenera SCHEMA.md e FINDINGS.md dagli artefatti di una run."""
+    output = Path(output_dir)
+    events = pd.read_parquet(output / "events.parquet")
+    _manifest = json.loads((output / "manifest.json").read_text())
+    _summary = json.loads((output / "s0_summary.json").read_text())
+    leakage = json.loads((output / "leakage.json").read_text())
+    missing = json.loads((output / "missing_external.json").read_text())
+    inventory = json.loads((output / "inventory.json").read_text())
+    write_reports(events, replace(cfg, reports_dir=str(output)), leakage, missing, inventory)

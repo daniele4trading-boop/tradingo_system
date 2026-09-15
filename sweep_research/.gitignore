@@ -1,0 +1,4 @@
+events.parquet
+output/
+*.duckdb
+__pycache__/
