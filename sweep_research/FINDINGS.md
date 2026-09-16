@@ -161,21 +161,20 @@ export CSV storico Investing.com/Myfxbook; salvare in `C:\quantlab-data\external
 - Dukascopy non fornisce trade print: `delta_est`/`cvd_session`/`vpin` usano volumi di quotazione bid/ask con
   classificazione sul mid del tick precedente (Lee-Ready quote-based, marcato PROXY nello schema).
 
-## Test statistici eseguiti: S0=0, S1=35 (t cluster-day, nessuna correzione FDR)
+## Test statistici eseguiti: S0=0, S1=35, S2=498, totale=533
 
-| h | n | mean | t_cluster_day | boot_ci95 | hit_rate |
-|---|---|---|---|---|---|
-| 5 | 32539 | -0.174 | -3.463 | [-0.272, -0.078] | 0.499 |
-| 15 | 32539 | -0.261 | -2.724 | [-0.446, -0.086] | 0.51 |
-| 30 | 32539 | -0.358 | -2.355 | [-0.661, -0.059] | 0.508 |
-| 60 | 32539 | -0.545 | -2.375 | [-0.988, -0.087] | 0.511 |
-| 120 | 32539 | -0.74 | -2.19 | [-1.39, -0.043] | 0.509 |
+- S2: m=498; positivi grezzi α=0.05: 87; attesi: 24.9
+- survivors BH q=0.10: 2
+- survivors BH q=0.05: 2
 
-Nessuna correzione per test multipli è applicata in S1; arriva in S2.
-S1 non autorizza alcuna conclusione di edge.
-La popolazione raw contiene duplicati ed è riportata solo descrittivamente.
+| feature | bin | h | n | mean | t_cluster_day | p_adj |
+|---|---|---|---|---|---|---|
+| displacement_60s | q4 | 120 | 5128 | -2.477 | -3.923 | 0.043 |
+| killzone_flag | none | 120 | 7363 | -2.834 | -3.736 | 0.047 |
 
-Report completo: [report_s1.html](output/s1/report_s1.html)
+S2: 496 segmenti su 498 non sopravvivono a BH q=0.10.
+
+Report completo: [report_s2.html](output/s2/report_s2.html)
 
 ## Cosa NON ha funzionato
 

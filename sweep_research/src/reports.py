@@ -30,7 +30,7 @@ def _notes(path: Path) -> list[str]:
 
 def write_reports(
     events, cfg, leakage: dict, missing: dict, inventory: dict | None = None,
-    s1_summary: dict | None = None,
+    s1_summary: dict | None = None, s2_summary: dict | None = None,
 ) -> None:
     root = Path(cfg.reports_dir)
     root.mkdir(parents=True, exist_ok=True)
@@ -63,8 +63,45 @@ def write_reports(
         candidate = Path(cfg.output_dir) / "s1" / "s1_summary.json"
         if candidate.exists():
             s1_summary = json.loads(candidate.read_text())
+    if s2_summary is None:
+        candidate = Path(cfg.output_dir) / "s2" / "s2_summary.json"
+        if candidate.exists():
+            s2_summary = json.loads(candidate.read_text())
+    s1_count = s1_summary.get("n_tests_s1", 0) if s1_summary else 0
     s1_lines = ["## Test statistici eseguiti: 0 (S0 non esegue test)"]
-    if s1_summary:
+    if s2_summary:
+        survivors = s2_summary.get("survivors", [])
+        survivor_rows = [
+            [
+                row.get("feature"), row.get("bin"), row.get("horizon_min"),
+                _fmt(row.get("n")), _fmt(row.get("mean")), _fmt(row.get("t_cluster_day")),
+                _fmt(row.get("p_adj_bh")),
+            ]
+            for row in survivors
+        ]
+        survivor_section = (
+            _table(["feature", "bin", "h", "n", "mean", "t_cluster_day", "p_adj"], survivor_rows)
+            if survivor_rows else ["nessun segmento sopravvive alla correzione FDR"]
+        )
+        s1_lines = [
+            f"## Test statistici eseguiti: S0=0, S1={s1_count}, "
+            f"S2={s2_summary.get('n_tests_s2', 0)}, "
+            f"totale={s1_count + s2_summary.get('n_tests_s2', 0)}",
+            "",
+            f"- S2: m={s2_summary.get('n_tests_s2', 0)}; positivi grezzi α=0.05: "
+            f"{s2_summary.get('n_raw_p_lt_05', 0)}; attesi: "
+            f"{_fmt(s2_summary.get('expected_false_positives_05'))}",
+            f"- survivors BH q=0.10: {s2_summary.get('n_survivors_q10', 0)}",
+            f"- survivors BH q=0.05: {s2_summary.get('n_survivors_q05', 0)}",
+            "",
+            *survivor_section,
+            "",
+            f"S2: {s2_summary.get('n_tests_s2', 0) - s2_summary.get('n_survivors_q10', 0)} "
+            f"segmenti su {s2_summary.get('n_tests_s2', 0)} non sopravvivono a BH q=0.10.",
+            "",
+            "Report completo: [report_s2.html](output/s2/report_s2.html)",
+        ]
+    elif s1_summary:
         pooled_rows = [
             [
                 row.get("horizon_min"), row.get("n"), _fmt(row.get("mean")),
@@ -74,7 +111,7 @@ def write_reports(
             for row in s1_summary.get("pooled_dedup_all", [])
         ]
         s1_lines = [
-            f"## Test statistici eseguiti: S0=0, S1={s1_summary.get('n_tests_s1', 0)} "
+            f"## Test statistici eseguiti: S0=0, S1={s1_count} "
             "(t cluster-day, nessuna correzione FDR)",
             "",
             *_table(["h", "n", "mean", "t_cluster_day", "boot_ci95", "hit_rate"], pooled_rows),
@@ -123,6 +160,9 @@ def regenerate(cfg, output_dir: str | Path) -> None:
     inventory = json.loads((output / "inventory.json").read_text())
     s1_path = output / "s1" / "s1_summary.json"
     s1_summary = json.loads(s1_path.read_text()) if s1_path.exists() else None
+    s2_path = output / "s2" / "s2_summary.json"
+    s2_summary = json.loads(s2_path.read_text()) if s2_path.exists() else None
     write_reports(
-        events, replace(cfg, reports_dir=str(output)), leakage, missing, inventory, s1_summary
+        events, replace(cfg, reports_dir=str(output)), leakage, missing, inventory,
+        s1_summary, s2_summary,
     )

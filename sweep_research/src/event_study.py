@@ -68,6 +68,7 @@ def describe_returns(
     rng: np.random.Generator,
     horizon_min: int | None = None,
     inferential: bool = True,
+    bootstrap: bool = True,
 ) -> dict:
     """Statistiche descrittive e inferenziali cluster-day per un rendimento."""
     values, days = _finite_arrays(x, day_ids)
@@ -102,15 +103,18 @@ def describe_returns(
         day_sums = np.bincount(inverse, weights=centered)
         se_cluster = float(np.sqrt(np.sum(day_sums**2)) / n)
         result["t_cluster_day"] = float(mean / se_cluster) if se_cluster > 0 else None
-        day_values, day_counts = np.unique(days, return_counts=True)
-        sums = np.bincount(inverse, weights=values)
-        n_days = len(day_values)
-        weights = rng.multinomial(n_days, np.full(n_days, 1.0 / n_days), size=2000)
-        bootstrap_means = (weights @ sums) / (weights @ day_counts)
-        ci = np.quantile(bootstrap_means, [0.025, 0.975])
-        result["boot_ci95"] = [float(ci[0]), float(ci[1])]
-        centered_bootstrap = bootstrap_means - mean
-        result["boot_p_two_sided"] = float(np.mean(np.abs(centered_bootstrap) >= abs(mean)))
+        if bootstrap:
+            day_values, day_counts = np.unique(days, return_counts=True)
+            sums = np.bincount(inverse, weights=values)
+            n_days = len(day_values)
+            weights = rng.multinomial(n_days, np.full(n_days, 1.0 / n_days), size=2000)
+            bootstrap_means = (weights @ sums) / (weights @ day_counts)
+            ci = np.quantile(bootstrap_means, [0.025, 0.975])
+            result["boot_ci95"] = [float(ci[0]), float(ci[1])]
+            centered_bootstrap = bootstrap_means - mean
+            result["boot_p_two_sided"] = float(
+                np.mean(np.abs(centered_bootstrap) >= abs(mean))
+            )
     if horizon_min is not None:
         result["mean_bp_per_sqrt_min"] = float(mean / math.sqrt(horizon_min))
     return result

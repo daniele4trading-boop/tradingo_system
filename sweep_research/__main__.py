@@ -23,7 +23,11 @@ def main() -> int:
         from .src.stages.s1 import run as run_s1
         run_s1(cfg)
         return 0
-    if args.stage in {"s1", "s2", "s3", "s4", "s5"}:
+    if args.stage == "s2":
+        from .src.stages.s2 import run as run_s2
+        run_s2(cfg)
+        return 0
+    if args.stage in {"s3", "s4", "s5"}:
         module = __import__(f"sweep_research.src.stages.{args.stage}", fromlist=["run"])
         module.run()
         return 2

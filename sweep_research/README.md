@@ -14,5 +14,12 @@ Event study S1 sul file `events.parquet` prodotto da S0:
   --stage s1 --config sweep_research/config/xauusd.yaml
 ```
 
+Condizionamento S2 con correzione FDR:
+
+```bash
+/home/ubuntu/venv-sweep/bin/python -m sweep_research run \
+  --stage s2 --config sweep_research/config/xauusd.yaml
+```
+
 Il codice non importa moduli del repository principale e legge il layout
 Parquet QLAB direttamente.
