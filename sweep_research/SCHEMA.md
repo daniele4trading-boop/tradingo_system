@@ -11,10 +11,13 @@
 | ny_date | trading day NY | date | calendar |  | event | no |
 | dir | direzione sweep | text | events |  | event | no |
 | sign | segno direzionale | int | events |  | event | no |
+| trade_sign | segno dell'ipotesi dichiarata per il rendimento | int | config |  | event | no |
 | level_type | tipo livello | text | levels |  | event | no |
 | level_price | prezzo livello | price | levels |  | event | no |
 | extreme_price | estremo barra | price | bars |  | event | no |
 | penetration_pts | distanza estremo-livello | price | bars |  | event | no |
+| penetration_half_spreads | penetrazione divisa per mezzo spread mediano della barra | ratio | bars |  | event | no |
+| subspread_sweep | penetrazione inferiore alla soglia configurata in mezzi spread | bool | bars |  | event | no |
 | bar_open | apertura barra evento | price | bars |  | event | no |
 | bar_high | massimo barra evento | price | bars |  | event | no |
 | bar_low | minimo barra evento | price | bars |  | event | no |
@@ -31,8 +34,8 @@
 | dist_from_level_atr | penetrazione normalizzata ATR | ATR | bars |  | event | no |
 | liquidity_density | swing confermati nella fascia prezzo | count | bars |  | event | no |
 | time_beyond_level_sec | secondi oltre il livello tra tick | seconds | ticks |  | event | no |
-| displacement_60s | displacement normalizzato a 60 secondi | ATR/s | ticks |  | event | no |
-| displacement_180s | displacement normalizzato a 180 secondi | ATR/s | ticks |  | event | no |
+| displacement_60s | displacement normalizzato a 60 secondi | ATR/s | ticks | NaN se nessun midpoint tick supera il livello | event | no |
+| displacement_180s | displacement normalizzato a 180 secondi | ATR/s | ticks | NaN se nessun midpoint tick supera il livello | event | no |
 | t_extreme | timestamp estremo raw tick | UTC naive | ticks |  | event | no |
 | displacement_60s_truncated | finestra 60s troncata | bool | ticks |  | event | no |
 | displacement_180s_truncated | finestra 180s troncata | bool | ticks |  | event | no |
@@ -59,21 +62,45 @@
 | efficiency_ratio | efficiency ratio del prezzo | ratio | bars TF |  | event | no |
 | vol_burst_flag | burst ATR veloce/lento | bool | bars TF |  | event | no |
 | volatility_regime | regime burst/trend/chop | text | bars TF |  | event | no |
-| overnight_range | range Asia normalizzato ATR | ATR | bars M1 |  | event | no |
-| asia_gap | gap apertura Asia rispetto close precedente | ATR | bars M1 |  | event | no |
+| overnight_range | range high-low della sessione Asia corrente normalizzato ATR | ATR | bars M1 | NaN se l'ora NY dell'evento è <03:00 o >=18:00, oppure mancano dati | event | no |
+| asia_gap | open Asia corrente meno close pre-17:00 dello stesso giorno, normalizzato ATR | ATR | bars M1 | NaN solo se manca uno dei riferimenti M1 | event | no |
 | dxy_intraday_trend | rendimento DXY lookback | bp | external symbol | MISSING: external symbol assente | event | no |
 | ust_proxy_change | variazione proxy T-Bond | bp | external symbol | PROXY: T-Bond CFD per tassi | event | no |
 | xagusd_divergence | divergenza XAU-XAG | bp | external symbol | MISSING: external symbol assente | event | no |
+| entry_c1 | risultato forward ex-post | price | outcomes |  | future | sì |
+| entry_c1_ts | risultato forward ex-post | UTC naive | outcomes |  | future | sì |
+| exec_slip_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_5_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_5_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_5_c1_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_5_c1_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_5_c1_ex_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_5_c1_ex_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_15_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_15_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_15_c1_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_15_c1_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_15_c1_ex_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_15_c1_ex_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_30_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_30_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_30_c1_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_30_c1_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_30_c1_ex_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_30_c1_ex_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_60_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_60_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_60_c1_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_60_c1_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_60_c1_ex_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_60_c1_ex_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_120_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | fwd_ret_120_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_120_c1_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_120_c1_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_120_c1_ex_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| fwd_ret_120_c1_ex_dir_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
+| cost_rt_bp | risultato forward ex-post | bp | outcomes |  | future | sì |
 | mfe_120_pts | risultato forward ex-post | price | outcomes |  | future | sì |
 | mae_120_pts | risultato forward ex-post | price | outcomes |  | future | sì |
 | mfe_120_atr | risultato forward ex-post | ATR | outcomes |  | future | sì |

@@ -71,7 +71,8 @@ PAIRS = [
 ]
 TEST_COLUMNS = [
     "feature", "feature2", "bin", "bin2", "horizon_min", "n", "n_days",
-    "mean", "median", "hit_rate", "t_cluster_day", "p", "p_adj_bh",
+    "mean", "mean_cost_bp", "mean_net_bp", "median", "hit_rate", "t_cluster_day",
+    "p", "p_adj_bh",
     "survives_q10", "survives_q05",
 ]
 
@@ -103,7 +104,10 @@ def _qcut_labels(series: pd.Series) -> pd.Series:
     return result
 
 
-def _feature_bins(events: pd.DataFrame) -> tuple[dict[str, pd.Series], list[str]]:
+def _feature_bins(
+    events: pd.DataFrame, excluded_nan: set[str] | None = None
+) -> tuple[dict[str, pd.Series], list[str]]:
+    excluded_nan = excluded_nan or set()
     bins: dict[str, pd.Series] = {}
     skipped: list[str] = []
     for name in CONTINUOUS_FEATURES:
@@ -113,7 +117,7 @@ def _feature_bins(events: pd.DataFrame) -> tuple[dict[str, pd.Series], list[str]
         values = pd.to_numeric(events[name], errors="coerce")
         result = _qcut_labels(values)
         missing_count = int(values.isna().sum())
-        if missing_count >= 200:
+        if missing_count >= 200 and name not in excluded_nan:
             result.loc[values.isna()] = "nan"
         bins[name] = result
     for name in CATEGORICAL_FEATURES:
@@ -134,12 +138,20 @@ def _feature_bins(events: pd.DataFrame) -> tuple[dict[str, pd.Series], list[str]
             result = _qcut_labels(pd.to_numeric(values, errors="coerce"))
         else:
             result = values.astype("string")
-        if missing_count >= 200:
+        if missing_count >= 200 and name not in excluded_nan:
             result.loc[values.isna()] = "nan"
         else:
             result.loc[values.isna()] = pd.NA
         bins[name] = result
     return bins, skipped
+
+
+def s2_population(events: pd.DataFrame) -> pd.DataFrame:
+    """Restituisce dedup_all filtrata dagli sweep sotto-spread."""
+    dedup_all = dedup_events(events, ["event_ts_utc", "dir"])
+    if "subspread_sweep" not in dedup_all:
+        raise ValueError("S2 richiede la colonna subspread_sweep")
+    return dedup_all.loc[~dedup_all["subspread_sweep"].astype(bool)].copy()
 
 
 def _p_value(t_value: float | None) -> float:
@@ -159,7 +171,7 @@ def _segment_row(
     rng: np.random.Generator,
 ) -> dict | None:
     subset = events.loc[mask]
-    outcome = subset[f"fwd_ret_{horizon}_dir_bp"].to_numpy(float)
+    outcome = subset[f"fwd_ret_{horizon}_c1_ex_dir_bp"].to_numpy(float)
     valid = np.isfinite(outcome)
     subset = subset.loc[valid]
     if len(subset) < 200:
@@ -168,12 +180,13 @@ def _segment_row(
     if n_days < 30:
         return None
     stats = describe_returns(
-        subset[f"fwd_ret_{horizon}_dir_bp"].to_numpy(float),
+        subset[f"fwd_ret_{horizon}_c1_ex_dir_bp"].to_numpy(float),
         subset["ny_date"].to_numpy(),
         rng,
         horizon,
         inferential=True,
         bootstrap=False,
+        cost_bp=subset["cost_rt_bp"].to_numpy(float),
     )
     t_value = stats.get("t_cluster_day")
     return {
@@ -187,6 +200,8 @@ def _segment_row(
         "mean": stats["mean"],
         "median": stats["median"],
         "hit_rate": stats["hit_rate"],
+        "mean_cost_bp": stats.get("mean_cost_bp"),
+        "mean_net_bp": stats.get("mean_net_bp"),
         "t_cluster_day": t_value,
         "p": _p_value(t_value),
     }
@@ -289,13 +304,14 @@ def _write_html(summary: dict, rows: list[dict], output: Path) -> None:
     encoded = base64.b64encode(plot_path.read_bytes()).decode("ascii")
     survivor_rows = [
         [row["feature"], row["bin"], row["horizon_min"], row["n"], row["mean"],
-         row["t_cluster_day"], row["p_adj_bh"]]
+         row["mean_net_bp"], row["t_cluster_day"], row["p_adj_bh"]]
         for row in summary["survivors"]
     ]
     table_rows = [
         [
             row["feature"], row["feature2"], row["bin"], row["bin2"], row["horizon_min"],
-            row["n"], row["n_days"], row["mean"], row["median"], row["hit_rate"],
+            row["n"], row["n_days"], row["mean"], row["mean_cost_bp"], row["mean_net_bp"],
+            row["median"], row["hit_rate"],
             row["t_cluster_day"], row["p"], row["p_adj_bh"],
             row["survives_q10"], row["survives_q05"],
         ]
@@ -316,17 +332,21 @@ th,td{{border:1px solid #bbb;padding:.25rem .4rem}} img{{max-width:100%}}</style
 <body><h1>S2 — Condizionamento con FDR</h1>
 <h2>Test totali: {summary["n_tests_s2"]}</h2>
 <h2>Metodologia</h2>
-<p>Popolazione: dedup_all. Outcome: 30 e 120 minuti, rendimenti lordi senza costi.</p>
+    <p>Popolazione: dedup_all. Outcome: 30 e 120 minuti, rendimenti C1 ex-drift,
+    con costi spread separati.</p>
+<p>Eventi nella popolazione S2 filtrata: {summary["n_events_population"]}.</p>
 <p>Segmenti: n ≥ 200 outcome finiti e almeno 30 giorni NY. I quintili sono fit
 sull'intera popolazione; questa è analisi descrittiva, non una procedura train/test.</p>
 <p>Cluster-day t-stat, p-value normale bilaterale, BH q=0.10 su tutta la famiglia.
 Nessun bootstrap e nessuna curva di equity.</p>
 <h2>Survivors BH q=0.10</h2>
-{table(["feature", "bin", "h", "n", "mean", "t", "p_adj"], survivor_rows)
+<p>Segmenti sopravvissuti a BH q=0,10 con media netta &gt; 0:
+{summary["n_survivors_q10_net_positive"]}</p>
+{table(["feature", "bin", "h", "n", "mean", "mean_net", "t", "p_adj"], survivor_rows)
  if survivor_rows else "<p>nessun segmento sopravvive alla correzione FDR</p>"}
 <h2>Tabella completa, ordinata per p</h2>
-{table(["feature", "feature2", "bin", "bin2", "h", "n", "days", "mean", "median",
-        "hit", "t", "p", "p_adj", "q10", "q05"], table_rows)}
+{table(["feature", "feature2", "bin", "bin2", "h", "n", "days", "mean", "cost",
+        "mean_net", "median", "hit", "t", "p", "p_adj", "q10", "q05"], table_rows)}
 <h2>Distribuzione p-value</h2>
 <img src="data:image/png;base64,{encoded}" />
 </body></html>"""
@@ -339,9 +359,8 @@ def run_s2(cfg: Config) -> dict:
     events_path = output / "events.parquet"
     if not events_path.exists():
         raise SystemExit(f"S2: events.parquet non trovato: {events_path}")
-    events = pd.read_parquet(events_path)
-    events = dedup_events(events, ["event_ts_utc", "dir"])
-    bins, skipped = _feature_bins(events)
+    events = s2_population(pd.read_parquet(events_path))
+    bins, skipped = _feature_bins(events, set(cfg.s2_nan_bins_excluded))
     rng = np.random.default_rng(cfg.seed)
     rows, dropped = _candidates(events, bins, cfg, rng)
     adjusted = bh_adjust(np.asarray([row["p"] for row in rows], dtype=float))
@@ -353,6 +372,7 @@ def run_s2(cfg: Config) -> dict:
     survivors = [row for row in rows if row["survives_q10"]]
     survivors_q05 = [row for row in rows if row["survives_q05"]]
     summary = {
+        "n_events_population": len(events),
         "n_tests_s2": len(rows),
         "n_segments_dropped": dropped,
         "skipped_features": skipped,
@@ -360,6 +380,12 @@ def run_s2(cfg: Config) -> dict:
         "expected_false_positives_05": 0.05 * len(rows),
         "n_survivors_q10": len(survivors),
         "n_survivors_q05": len(survivors_q05),
+        "n_survivors_q10_net_positive": int(
+            sum(
+                row.get("mean_net_bp") is not None and row["mean_net_bp"] > 0
+                for row in survivors
+            )
+        ),
         "tests": rows,
         "survivors": survivors,
         "survivors_q05": survivors_q05,

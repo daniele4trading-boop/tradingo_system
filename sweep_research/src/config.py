@@ -39,6 +39,13 @@ class Config:
     output_dir: str = "sweep_research/output"
     reports_dir: str = "sweep_research"
     seed: int = 20240801
+    hypothesis: str = "continuation"
+    min_penetration_half_spreads: float = 1.0
+    drift_detrend: dict[str, list[str]] = field(default_factory=lambda: {"by": ["year", "ny_hour"]})
+    cost_model: dict[str, str] = field(default_factory=lambda: {"spread_stat": "median_by_ny_hour"})
+    s2_nan_bins_excluded: list[str] = field(
+        default_factory=lambda: ["overnight_range", "asia_gap"]
+    )
     period: PeriodConfig = field(default_factory=lambda: PeriodConfig("2022-08-01", "2026-07-24"))
     timeframes: list[str] = field(default_factory=lambda: ["M5", "M15"])
     swing_n: list[int] = field(default_factory=lambda: [5, 10, 20])

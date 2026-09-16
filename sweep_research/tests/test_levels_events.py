@@ -1,7 +1,8 @@
 import pandas as pd
+import pytest
 
 from sweep_research.src.config import Config
-from sweep_research.src.events import detect_events
+from sweep_research.src.events import compute_penetration_flags, detect_events
 from sweep_research.src.levels import build_levels
 
 
@@ -28,3 +29,10 @@ def test_level_breakout_removes_level():
     cfg = Config(swing_n=[1], equal_level_base_n=1)
     events = detect_events(bars, cfg, "M5")
     assert len(events) == 0 or (events.bar_ts_utc >= bars.ts.iloc[5]).all()
+
+
+def test_subspread_threshold_uses_half_spread():
+    assert compute_penetration_flags(0.1, 0.4, 1.0) == (0.5, True)
+    ratio, flag = compute_penetration_flags(0.3, 0.4, 1.0)
+    assert ratio == pytest.approx(1.5)
+    assert flag is False

@@ -3,6 +3,11 @@ data_root: /home/ubuntu/quantlab-data
 output_dir: sweep_research/output
 reports_dir: sweep_research
 seed: 20240801
+hypothesis: continuation
+min_penetration_half_spreads: 1.0
+drift_detrend: {by: [year, ny_hour]}
+cost_model: {spread_stat: median_by_ny_hour}
+s2_nan_bins_excluded: [overnight_range, asia_gap]
 period: {start: "2022-08-01", end: "2026-07-24"}
 timeframes: [M5, M15]
 swing_n: [5, 10, 20]

@@ -2,10 +2,21 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+import numpy as np
 import pandas as pd
 
 from .config import Config
 from .levels import Level, build_levels
+
+
+def compute_penetration_flags(
+    penetration_pts: float, spread_med: float, threshold: float
+) -> tuple[float, bool]:
+    if not np.isfinite(spread_med) or spread_med == 0:
+        ratio = float("inf")
+    else:
+        ratio = penetration_pts / (spread_med / 2)
+    return ratio, ratio < threshold
 
 
 def detect_events(bars: pd.DataFrame, cfg: Config, tf: str) -> pd.DataFrame:
@@ -58,18 +69,33 @@ def detect_events(bars: pd.DataFrame, cfg: Config, tf: str) -> pd.DataFrame:
                 level = max(group, key=lambda x: x.n)
                 sign = -1 if direction == "sweep_high" else 1
                 extreme = bar.high if sign < 0 else bar.low
+                spread_med = getattr(bar, "spread_med", float("nan"))
+                penetration_half_spreads, subspread_sweep = compute_penetration_flags(
+                    abs(extreme - level.price),
+                    spread_med,
+                    cfg.min_penetration_half_spreads,
+                )
+                if cfg.hypothesis == "continuation":
+                    trade_sign = 1 if direction == "sweep_high" else -1
+                elif cfg.hypothesis == "reversal":
+                    trade_sign = -1 if direction == "sweep_high" else 1
+                else:
+                    raise ValueError(f"hypothesis non valida: {cfg.hypothesis}")
                 rows.append({
                     "symbol": cfg.symbol, "tf": tf, "bar_ts_utc": bar.ts, "event_ts_utc": bar.ts + step,
                     "event_ts_ny": (bar.ts + step).tz_localize("UTC").tz_convert(cfg.session_tz).isoformat(),
                     "ny_date": ((bar.ts + step).tz_localize("UTC").tz_convert(cfg.session_tz) -
                                pd.Timedelta(hours=18)).date(),
                     "dir": direction, "sign": sign,
+                    "trade_sign": trade_sign,
                     "level_type": (
                         f"swing_{level.kind.split('_')[-1]}_{level.n}"
                         if level.kind.startswith("swing_") else level.kind
                     ),
                     "level_price": level.price, "extreme_price": extreme,
                     "penetration_pts": abs(extreme - level.price),
+                    "penetration_half_spreads": penetration_half_spreads,
+                    "subspread_sweep": subspread_sweep,
                     "bar_open": bar.open, "bar_high": bar.high, "bar_low": bar.low, "bar_close": bar.close,
                     "bar_volume": getattr(bar, "volume", float("nan")),
                     "bar_n_ticks": getattr(bar, "n_ticks", float("nan")),

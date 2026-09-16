@@ -70,17 +70,28 @@ def write_reports(
     s1_count = s1_summary.get("n_tests_s1", 0) if s1_summary else 0
     s1_lines = ["## Test statistici eseguiti: 0 (S0 non esegue test)"]
     if s2_summary:
+        comparison_rows = [
+            [
+                row.get("horizon_min"), row.get("dir"), row.get("population"),
+                row.get("n"), _fmt(row.get("mean")), _fmt(row.get("t_cluster_day")),
+            ]
+            for row in (s1_summary or {}).get("comparison", [])
+        ]
         survivors = s2_summary.get("survivors", [])
         survivor_rows = [
             [
                 row.get("feature"), row.get("bin"), row.get("horizon_min"),
-                _fmt(row.get("n")), _fmt(row.get("mean")), _fmt(row.get("t_cluster_day")),
+                _fmt(row.get("n")), _fmt(row.get("mean")),
+                _fmt(row.get("mean_net_bp")), _fmt(row.get("t_cluster_day")),
                 _fmt(row.get("p_adj_bh")),
             ]
             for row in survivors
         ]
         survivor_section = (
-            _table(["feature", "bin", "h", "n", "mean", "t_cluster_day", "p_adj"], survivor_rows)
+            _table(
+                ["feature", "bin", "h", "n", "mean", "mean_net", "t_cluster_day", "p_adj"],
+                survivor_rows,
+            )
             if survivor_rows else ["nessun segmento sopravvive alla correzione FDR"]
         )
         s1_lines = [
@@ -88,6 +99,12 @@ def write_reports(
             f"S2={s2_summary.get('n_tests_s2', 0)}, "
             f"totale={s1_count + s2_summary.get('n_tests_s2', 0)}",
             "",
+            f"- ipotesi provate: {(s1_summary or {}).get('n_hypotheses_tried', 2)}",
+            "",
+            "### Confronto popolazione vecchia/nuova",
+            *_table(["h", "dir", "population", "n", "mean", "t"], comparison_rows),
+            "",
+            f"- S2 popolazione filtrata: {s2_summary.get('n_events_population', 0)} eventi.",
             f"- S2: m={s2_summary.get('n_tests_s2', 0)}; positivi grezzi α=0.05: "
             f"{s2_summary.get('n_raw_p_lt_05', 0)}; attesi: "
             f"{_fmt(s2_summary.get('expected_false_positives_05'))}",
@@ -98,6 +115,13 @@ def write_reports(
             "",
             f"S2: {s2_summary.get('n_tests_s2', 0) - s2_summary.get('n_survivors_q10', 0)} "
             f"segmenti su {s2_summary.get('n_tests_s2', 0)} non sopravvivono a BH q=0.10.",
+            (
+                "Nessun segmento con edge positivo al netto dello spread sopravvive "
+                "alla correzione FDR: risultato negativo."
+                if s2_summary.get("n_survivors_q10_net_positive", 0) == 0
+                else f"Segmenti BH q=0.10 con edge netto positivo: "
+                f"{s2_summary.get('n_survivors_q10_net_positive', 0)}."
+            ),
             "",
             "Report completo: [report_s2.html](output/s2/report_s2.html)",
         ]
@@ -135,6 +159,10 @@ def write_reports(
         "", "## Operazioni Dukascopy", "", *_notes(NOTES_PATH),
         "", *s1_lines,
         "", "## Cosa NON ha funzionato", "",
+        "Sweep sub-spread: gli eventi sotto la soglia di mezzo spread sono mantenuti "
+        "ma trattati come rumore bid/mid nella popolazione primaria.",
+        "Ipotesi reversal: provata nella lettura S1 precedente; questa revisione "
+        "testa continuazione come configurazione aggiuntiva.",
     ]
     missing_rows = [[name, "missing" if value else "available"] for name, value in missing.items()]
     tick_missing = int(events["ticks_missing"].sum()) if "ticks_missing" in events else 0

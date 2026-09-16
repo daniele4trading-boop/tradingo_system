@@ -46,10 +46,13 @@
 | ny_date | calendar |  | no |
 | dir | events |  | no |
 | sign | events |  | no |
+| trade_sign | config |  | no |
 | level_type | levels |  | no |
 | level_price | levels |  | no |
 | extreme_price | bars |  | no |
 | penetration_pts | bars |  | no |
+| penetration_half_spreads | bars |  | no |
+| subspread_sweep | bars |  | no |
 | bar_open | bars |  | no |
 | bar_high | bars |  | no |
 | bar_low | bars |  | no |
@@ -66,8 +69,8 @@
 | dist_from_level_atr | bars |  | no |
 | liquidity_density | bars |  | no |
 | time_beyond_level_sec | ticks |  | no |
-| displacement_60s | ticks |  | no |
-| displacement_180s | ticks |  | no |
+| displacement_60s | ticks | NaN se nessun midpoint tick supera il livello | no |
+| displacement_180s | ticks | NaN se nessun midpoint tick supera il livello | no |
 | t_extreme | ticks |  | no |
 | displacement_60s_truncated | ticks |  | no |
 | displacement_180s_truncated | ticks |  | no |
@@ -94,21 +97,45 @@
 | efficiency_ratio | bars TF |  | no |
 | vol_burst_flag | bars TF |  | no |
 | volatility_regime | bars TF |  | no |
-| overnight_range | bars M1 |  | no |
-| asia_gap | bars M1 |  | no |
+| overnight_range | bars M1 | NaN se l'ora NY dell'evento è <03:00 o >=18:00, oppure mancano dati | no |
+| asia_gap | bars M1 | NaN solo se manca uno dei riferimenti M1 | no |
 | dxy_intraday_trend | external symbol | MISSING: external symbol assente | no |
 | ust_proxy_change | external symbol | PROXY: T-Bond CFD per tassi | no |
 | xagusd_divergence | external symbol | MISSING: external symbol assente | no |
+| entry_c1 | outcomes |  | sì |
+| entry_c1_ts | outcomes |  | sì |
+| exec_slip_bp | outcomes |  | sì |
 | fwd_ret_5_bp | outcomes |  | sì |
 | fwd_ret_5_dir_bp | outcomes |  | sì |
+| fwd_ret_5_c1_bp | outcomes |  | sì |
+| fwd_ret_5_c1_dir_bp | outcomes |  | sì |
+| fwd_ret_5_c1_ex_bp | outcomes |  | sì |
+| fwd_ret_5_c1_ex_dir_bp | outcomes |  | sì |
 | fwd_ret_15_bp | outcomes |  | sì |
 | fwd_ret_15_dir_bp | outcomes |  | sì |
+| fwd_ret_15_c1_bp | outcomes |  | sì |
+| fwd_ret_15_c1_dir_bp | outcomes |  | sì |
+| fwd_ret_15_c1_ex_bp | outcomes |  | sì |
+| fwd_ret_15_c1_ex_dir_bp | outcomes |  | sì |
 | fwd_ret_30_bp | outcomes |  | sì |
 | fwd_ret_30_dir_bp | outcomes |  | sì |
+| fwd_ret_30_c1_bp | outcomes |  | sì |
+| fwd_ret_30_c1_dir_bp | outcomes |  | sì |
+| fwd_ret_30_c1_ex_bp | outcomes |  | sì |
+| fwd_ret_30_c1_ex_dir_bp | outcomes |  | sì |
 | fwd_ret_60_bp | outcomes |  | sì |
 | fwd_ret_60_dir_bp | outcomes |  | sì |
+| fwd_ret_60_c1_bp | outcomes |  | sì |
+| fwd_ret_60_c1_dir_bp | outcomes |  | sì |
+| fwd_ret_60_c1_ex_bp | outcomes |  | sì |
+| fwd_ret_60_c1_ex_dir_bp | outcomes |  | sì |
 | fwd_ret_120_bp | outcomes |  | sì |
 | fwd_ret_120_dir_bp | outcomes |  | sì |
+| fwd_ret_120_c1_bp | outcomes |  | sì |
+| fwd_ret_120_c1_dir_bp | outcomes |  | sì |
+| fwd_ret_120_c1_ex_bp | outcomes |  | sì |
+| fwd_ret_120_c1_ex_dir_bp | outcomes |  | sì |
+| cost_rt_bp | outcomes |  | sì |
 | mfe_120_pts | outcomes |  | sì |
 | mae_120_pts | outcomes |  | sì |
 | mfe_120_atr | outcomes |  | sì |
@@ -161,23 +188,42 @@ export CSV storico Investing.com/Myfxbook; salvare in `C:\quantlab-data\external
 - Dukascopy non fornisce trade print: `delta_est`/`cvd_session`/`vpin` usano volumi di quotazione bid/ask con
   classificazione sul mid del tick precedente (Lee-Ready quote-based, marcato PROXY nello schema).
 
-## Test statistici eseguiti: S0=0, S1=35, S2=498, totale=533
+## Test statistici eseguiti: S0=0, S1=40, S2=494, totale=534
 
-- S2: m=498; positivi grezzi α=0.05: 87; attesi: 24.9
-- survivors BH q=0.10: 2
-- survivors BH q=0.05: 2
+- ipotesi provate: 2
 
-| feature | bin | h | n | mean | t_cluster_day | p_adj |
-|---|---|---|---|---|---|---|
-| displacement_60s | q4 | 120 | 5128 | -2.477 | -3.923 | 0.043 |
-| killzone_flag | none | 120 | 7363 | -2.834 | -3.736 | 0.047 |
+### Confronto popolazione vecchia/nuova
+| h | dir | population | n | mean | t |
+|---|---|---|---|---|---|
+| 30 | sweep_high | dedup_all_full | 15990 | 0.319 | 1.613 |
+| 30 | sweep_high | dedup_all | 8870 | 0.433 | 1.569 |
+| 30 | sweep_high | subspread_only | 7120 | 0.177 | 0.884 |
+| 30 | sweep_low | dedup_all_full | 16441 | 0.278 | 1.188 |
+| 30 | sweep_low | dedup_all | 9713 | 0.423 | 1.264 |
+| 30 | sweep_low | subspread_only | 6728 | 0.07 | 0.348 |
+| 120 | sweep_high | dedup_all_full | 15990 | 1.138 | 2.111 |
+| 120 | sweep_high | dedup_all | 8870 | 1.226 | 1.782 |
+| 120 | sweep_high | subspread_only | 7120 | 1.03 | 1.897 |
+| 120 | sweep_low | dedup_all_full | 16441 | 0.283 | 0.521 |
+| 120 | sweep_low | dedup_all | 9713 | 0.813 | 1.115 |
+| 120 | sweep_low | subspread_only | 6728 | -0.482 | -1.017 |
 
-S2: 496 segmenti su 498 non sopravvivono a BH q=0.10.
+- S2 popolazione filtrata: 18632 eventi.
+- S2: m=494; positivi grezzi α=0.05: 51; attesi: 24.7
+- survivors BH q=0.10: 0
+- survivors BH q=0.05: 0
+
+nessun segmento sopravvive alla correzione FDR
+
+S2: 494 segmenti su 494 non sopravvivono a BH q=0.10.
+Nessun segmento con edge positivo al netto dello spread sopravvive alla correzione FDR: risultato negativo.
 
 Report completo: [report_s2.html](output/s2/report_s2.html)
 
 ## Cosa NON ha funzionato
 
+Sweep sub-spread: gli eventi sotto la soglia di mezzo spread sono mantenuti ma trattati come rumore bid/mid nella popolazione primaria.
+Ipotesi reversal: provata nella lettura S1 precedente; questa revisione testa continuazione come configurazione aggiuntiva.
 | Fonte | Stato |
 |---|---|
 | DOLLARIDXUSD | available |
@@ -189,5 +235,5 @@ Report completo: [report_s2.html](output/s2/report_s2.html)
 
 - cut count: 5
 - compared events: 154633
-- verified columns: 60
+- verified columns: 63
 - failed columns: nessuno

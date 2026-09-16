@@ -4,10 +4,16 @@ import sys
 
 import numpy as np
 import pandas as pd
+import pytest
 import yaml
 
 from sweep_research.src.config import Config
-from sweep_research.src.event_study import dedup_events, describe_returns, run_s1
+from sweep_research.src.event_study import (
+    cluster_diff_test,
+    dedup_events,
+    describe_returns,
+    run_s1,
+)
 
 
 def test_dedup_events_uses_level_priority():
@@ -38,6 +44,21 @@ def test_describe_returns_cluster_day_and_bootstrap():
     boot = describe_returns(values, np.array(["a", "b", "c"]), np.random.default_rng(123), 5)
     assert boot["boot_ci95"][0] <= boot["mean"] <= boot["boot_ci95"][1]
     assert boot == describe_returns(values, np.array(["a", "b", "c"]), np.random.default_rng(123), 5)
+    costs = describe_returns(
+        values, np.array(["a", "b", "c"]), np.random.default_rng(123), 5,
+        cost_bp=np.array([0.5, 1.0, 1.5]),
+    )
+    assert costs["mean_cost_bp"] == 1.0
+    assert costs["mean_net_bp"] == 1.0
+
+
+def test_cluster_diff_independent_days_matches_welch_scale():
+    result = cluster_diff_test(
+        np.array([1.0, 2.0]), np.array(["a", "b"]),
+        np.array([0.0, 1.0]), np.array(["c", "d"]),
+    )
+    assert result["diff"] == 1.0
+    assert result["se_cluster_day"] == pytest.approx(0.5)
 
 
 def _synthetic_events(n=60):
@@ -51,6 +72,7 @@ def _synthetic_events(n=60):
             "ny_date": day,
             "tf": "M5" if index % 2 else "M15",
             "dir": "sweep_high" if index % 2 else "sweep_low",
+            "subspread_sweep": False,
             "level_type": "equal_high" if index % 3 == 0 else "swing_high_5",
             "mfe_120_atr": 1.0 + index / n,
             "mae_120_atr": 0.5 + index / (2 * n),
@@ -59,6 +81,12 @@ def _synthetic_events(n=60):
         }
         for horizon in [5, 15, 30, 60, 120]:
             row[f"fwd_ret_{horizon}_dir_bp"] = float((index % 7) - 2)
+            row[f"fwd_ret_{horizon}_c1_dir_bp"] = float((index % 7) - 2)
+            row[f"fwd_ret_{horizon}_c1_ex_dir_bp"] = float((index % 7) - 2)
+            row[f"fwd_ret_{horizon}_c1_ex_bp"] = float((index % 7) - 2)
+            row[f"fwd_ret_{horizon}_c1_bp"] = float((index % 7) - 2)
+            row[f"fwd_ret_{horizon}_bp"] = float((index % 7) - 2)
+        row["cost_rt_bp"] = 0.1
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -74,7 +102,7 @@ def test_s1_smoke_outputs_and_test_count(tmp_path):
     assert (output / "s1" / "s1_summary.json").exists()
     payload = json.loads((output / "s1" / "s1_summary.json").read_text())
     assert payload["n_tests_s1"] == len(payload["tests"])
-    assert payload["n_tests_s1"] == 27
+    assert payload["n_tests_s1"] == 40
     assert summary["n_events"]["raw"] == 60
 
 

@@ -32,10 +32,23 @@ _CAUSAL = [
     _spec("ny_date", "trading day NY", "date", "calendar"),
     _spec("dir", "direzione sweep", "text", "events"),
     _spec("sign", "segno direzionale", "int", "events"),
+    _spec(
+        "trade_sign", "segno dell'ipotesi dichiarata per il rendimento", "int", "config"
+    ),
     _spec("level_type", "tipo livello", "text", "levels"),
     _spec("level_price", "prezzo livello", "price", "levels"),
     _spec("extreme_price", "estremo barra", "price", "bars"),
     _spec("penetration_pts", "distanza estremo-livello", "price", "bars"),
+    _spec(
+        "penetration_half_spreads",
+        "penetrazione divisa per mezzo spread mediano della barra",
+        "ratio", "bars",
+    ),
+    _spec(
+        "subspread_sweep",
+        "penetrazione inferiore alla soglia configurata in mezzi spread",
+        "bool", "bars",
+    ),
     _spec("bar_open", "apertura barra evento", "price", "bars"),
     _spec("bar_high", "massimo barra evento", "price", "bars"),
     _spec("bar_low", "minimo barra evento", "price", "bars"),
@@ -53,8 +66,14 @@ _CAUSAL = [
     _spec("liquidity_density", "swing confermati nella fascia prezzo", "count", "bars"),
     _spec("time_beyond_level_sec", "secondi oltre il livello tra tick", "seconds", "ticks"),
     _spec("t_extreme", "timestamp estremo raw tick", "UTC naive", "ticks"),
-    _spec("displacement_60s", "displacement normalizzato a 60 secondi", "ATR/s", "ticks"),
-    _spec("displacement_180s", "displacement normalizzato a 180 secondi", "ATR/s", "ticks"),
+    _spec(
+        "displacement_60s", "displacement normalizzato a 60 secondi", "ATR/s", "ticks",
+        "NaN se nessun midpoint tick supera il livello",
+    ),
+    _spec(
+        "displacement_180s", "displacement normalizzato a 180 secondi", "ATR/s", "ticks",
+        "NaN se nessun midpoint tick supera il livello",
+    ),
     _spec("displacement_60s_truncated", "finestra 60s troncata", "bool", "ticks"),
     _spec("displacement_180s_truncated", "finestra 180s troncata", "bool", "ticks"),
     _spec(
@@ -113,8 +132,18 @@ _CAUSAL = [
     _spec("efficiency_ratio", "efficiency ratio del prezzo", "ratio", "bars TF"),
     _spec("vol_burst_flag", "burst ATR veloce/lento", "bool", "bars TF"),
     _spec("volatility_regime", "regime burst/trend/chop", "text", "bars TF"),
-    _spec("overnight_range", "range Asia normalizzato ATR", "ATR", "bars M1"),
-    _spec("asia_gap", "gap apertura Asia rispetto close precedente", "ATR", "bars M1"),
+    _spec(
+        "overnight_range",
+        "range high-low della sessione Asia corrente normalizzato ATR",
+        "ATR", "bars M1",
+        "NaN se l'ora NY dell'evento è <03:00 o >=18:00, oppure mancano dati",
+    ),
+    _spec(
+        "asia_gap",
+        "open Asia corrente meno close pre-17:00 dello stesso giorno, normalizzato ATR",
+        "ATR", "bars M1",
+        "NaN solo se manca uno dei riferimenti M1",
+    ),
     _spec(
         "dxy_intraday_trend", "rendimento DXY lookback", "bp", "external symbol",
         "MISSING: external symbol assente",
@@ -140,6 +169,8 @@ def schema_registry(columns: list[str] | None = None) -> list[ColumnSpec]:
             ("fwd_ret_30_dir_bp", "bp"), ("fwd_ret_60_dir_bp", "bp"),
             ("fwd_ret_120_dir_bp", "bp"), ("mfe_120_pts", "price"), ("mae_120_pts", "price"),
             ("mfe_120_atr", "ATR"), ("mae_120_atr", "ATR"),
+            ("entry_c1", "price"), ("entry_c1_ts", "UTC naive"),
+            ("exec_slip_bp", "bp"), ("cost_rt_bp", "bp"),
         ]
     ]
     known = {spec.name: spec for spec in _CAUSAL + outcomes}
@@ -148,8 +179,14 @@ def schema_registry(columns: list[str] | None = None) -> list[ColumnSpec]:
     for column in columns:
         if column in known:
             continue
-        if re.fullmatch(r"(fwd_ret|mfe|mae)_\d+(_dir)?_(bp|pts|atr)", column):
-            unit = "bp" if "fwd_ret" in column else ("ATR" if column.endswith("_atr") else "price")
+        if re.fullmatch(
+            r"fwd_ret_\d+(?:_c1)?(?:_ex)?(?:_dir)?_bp|"
+            r"(?:mfe|mae)_\d+(?:_dir)?_(?:bp|pts|atr)",
+            column,
+        ):
+            unit = "bp" if ("fwd_ret" in column or column.endswith("_bp")) else (
+                "ATR" if column.endswith("_atr") else "price"
+            )
             known[column] = ColumnSpec(
                 column, "risultato forward ex-post", unit, "outcomes", "", "future", True
             )

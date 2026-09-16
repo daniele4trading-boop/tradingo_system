@@ -8,6 +8,13 @@ from . import pipeline
 from .schema import schema_for_columns
 
 
+def _is_outcome_column(name: str) -> bool:
+    try:
+        return schema_for_columns([name])[0].is_outcome
+    except ValueError:
+        return name.startswith(("fwd_", "mfe_", "mae_", "entry_c1", "exec_slip", "cost_rt"))
+
+
 def truncate_bundle(bundle: dict, cut_ts: pd.Timestamp) -> dict:
     out = {}
     for key, frame in bundle.items():
@@ -73,10 +80,8 @@ def check_leakage(bundle: dict, cfg, events: pd.DataFrame) -> dict:
             failures.append(f"event_set@{cut}")
             continue
         excluded = {
-            col for col in left.columns
-            if col == "event_id" or col == "event_ts_utc"
-            or col.startswith(("fwd_", "mfe_", "mae_"))
-        }
+            column for column in left.columns if _is_outcome_column(column)
+        } | {"event_id", "event_ts_utc"}
         for col in left.columns:
             if col in excluded:
                 continue
@@ -89,11 +94,9 @@ def check_leakage(bundle: dict, cfg, events: pd.DataFrame) -> dict:
                 equal = np.allclose(left[col].to_numpy(), right[col].to_numpy(), equal_nan=True, atol=1e-9)
             if not equal:
                 failures.append(col)
-        causal_right = set(right.columns) - {
-            col for col in right.columns
-            if col == "event_id" or col == "event_ts_utc"
-            or col.startswith(("fwd_", "mfe_", "mae_"))
-        }
+        causal_right = {
+            column for column in right.columns if not _is_outcome_column(column)
+        } - {"event_id", "event_ts_utc"}
         for col in sorted(causal_right - set(left.columns)):
             failures.append(col)
     try:
@@ -105,7 +108,7 @@ def check_leakage(bundle: dict, cfg, events: pd.DataFrame) -> dict:
             if col not in {"event_id", "event_ts_utc"}
             and not col.startswith(("fwd_", "mfe_", "mae_"))
         )
-    outcomes = [c for c in events.columns if c.startswith(("fwd_", "mfe_", "mae_"))]
+    outcomes = [c for c in events.columns if _is_outcome_column(c)]
     for col in outcomes:
         if col not in registry or not registry[col].is_outcome:
             failures.append(f"outcome_not_marked:{col}")
@@ -115,7 +118,7 @@ def check_leakage(bundle: dict, cfg, events: pd.DataFrame) -> dict:
         "verified_columns": len([
             c for c in events.columns
             if c not in {"event_id", "event_ts_utc"}
-            and not c.startswith(("fwd_", "mfe_", "mae_"))
+            and not _is_outcome_column(c)
         ]),
         "columns_failed": sorted(set(failures)),
     }
