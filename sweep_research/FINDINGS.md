@@ -8,9 +8,9 @@
 | XAUUSD/M15 | 96018 | 2022-07-03 22:00:00 | 2026-07-24 20:45:00 | 55 |
 | XAUUSD/M1 | 1439638 | 2022-07-03 22:00:00 | 2026-07-24 20:59:00 | 55 |
 | XAUUSD/ticks | 1412071 | 2022-08-01 00:00:00 | 2026-07-24 20:59:00 | 1239 |
-| DOLLARIDXUSD/M1 | 0 | None | None | missing |
-| USTBONDTRUSD/M1 | 0 | None | None | missing |
-| XAGUSD/M1 | 0 | None | None | missing |
+| DOLLARIDXUSD/M1 | 1262741 | 2022-08-01 00:00:00 | 2026-07-24 20:59:00 | 48 |
+| USTBONDTRUSD/M1 | 796743 | 2022-08-01 00:00:00 | 2026-07-24 20:46:00 | 48 |
+| XAGUSD/M1 | 1396099 | 2022-08-01 01:00:00 | 2026-07-24 20:59:00 | 48 |
 
 ## Conteggi eventi
 
@@ -133,17 +133,20 @@ Note operative (mantenute a mano dal lead; incluse in FINDINGS.md a ogni run).
 
 ### Nuovi simboli Dukascopy (append-only nel warehouse Contabo)
 
+Sync esterno completato: `XAGUSD`, `DOLLARIDXUSD`, `USTBONDTRUSD`, timeframe
+`M1/M5/M15/H1`, 48 file mensili per simbolo nel periodo 2022-08 → 2026-07.
+Path Windows: `C:\quantlab-data\bars\symbol=<SYM>\source=dukascopy\tf=<TF>\anchor=0`.
+Le barre esterne sono state copiate in locale. Sono inoltre disponibili 1 238 giorni
+di tick XAGUSD in `C:\quantlab-data\ticks\symbol=XAGUSD`.
+
 Codici verificati con `mktdata.dukascopy.verify_divisor` (divisore 1000, prezzi plausibili):
 `XAGUSD` (bid mediano 30.411 il 2024-06-03), `DOLLARIDXUSD` (104.471), `USTBONDTRUSD` (116.835, CFD T-Bond: **proxy** tassi).
 `USDIDXUSD` non esiste su Dukascopy.
 
-Script: `C:\quantlab\scripts\sync_sweep_external.py` (registra i due simboli nuovi in `mktdata.symbols` e chiama
-`mktdata.sync(sym, "2022-08-01", "2026-07-24 21:00", tfs=("M1","M5","M15","H1"))` con `C:\quantlab\.venv\Scripts\python.exe`).
-Stato al momento del PR S0: sync `XAGUSD` in corso (~30 % delle 34 894 ore, ~60 errori orari con retry automatico);
-`DOLLARIDXUSD` e `USTBONDTRUSD` seguono in coda. Path destinazione: `C:\quantlab-data\ticks\symbol=XAGUSD\...` e
-`C:\quantlab-data\bars\symbol=<S>\source=dukascopy\tf=<TF>\anchor=0\year=<Y>\`.
-Le feature `dxy_intraday_trend`, `ust_proxy_change`, `xagusd_divergence` in questo run sono quindi **NaN (missing)**:
-basta copiare le barre M1 dei tre simboli in `data_root` e rilanciare S0 per popolarle (nessuna modifica di codice).
+Script: `C:\quantlab\scripts\sync_sweep_external.py` (registra i simboli in
+`mktdata.symbols` e chiama `mktdata.sync` per il periodo richiesto). Le barre M1 dei
+tre simboli sono ora locali in `data_root`; il rerun S0 le usa per popolare
+`dxy_intraday_trend`, `ust_proxy_change` e `xagusd_divergence`.
 
 ### Calendario news
 
@@ -158,15 +161,29 @@ export CSV storico Investing.com/Myfxbook; salvare in `C:\quantlab-data\external
 - Dukascopy non fornisce trade print: `delta_est`/`cvd_session`/`vpin` usano volumi di quotazione bid/ask con
   classificazione sul mid del tick precedente (Lee-Ready quote-based, marcato PROXY nello schema).
 
-## Test statistici eseguiti: 0 (S0 non esegue test)
+## Test statistici eseguiti: S0=0, S1=35 (t cluster-day, nessuna correzione FDR)
+
+| h | n | mean | t_cluster_day | boot_ci95 | hit_rate |
+|---|---|---|---|---|---|
+| 5 | 32539 | -0.174 | -3.463 | [-0.272, -0.078] | 0.499 |
+| 15 | 32539 | -0.261 | -2.724 | [-0.446, -0.086] | 0.51 |
+| 30 | 32539 | -0.358 | -2.355 | [-0.661, -0.059] | 0.508 |
+| 60 | 32539 | -0.545 | -2.375 | [-0.988, -0.087] | 0.511 |
+| 120 | 32539 | -0.74 | -2.19 | [-1.39, -0.043] | 0.509 |
+
+Nessuna correzione per test multipli è applicata in S1; arriva in S2.
+S1 non autorizza alcuna conclusione di edge.
+La popolazione raw contiene duplicati ed è riportata solo descrittivamente.
+
+Report completo: [report_s1.html](output/s1/report_s1.html)
 
 ## Cosa NON ha funzionato
 
 | Fonte | Stato |
 |---|---|
-| DOLLARIDXUSD | missing |
-| USTBONDTRUSD | missing |
-| XAGUSD | missing |
+| DOLLARIDXUSD | available |
+| USTBONDTRUSD | available |
+| XAGUSD | available |
 | tick days | 0 eventi senza tick |
 
 ## Esito anti-leakage

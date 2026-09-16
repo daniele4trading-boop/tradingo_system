@@ -15,17 +15,20 @@ Note operative (mantenute a mano dal lead; incluse in FINDINGS.md a ogni run).
 
 ### Nuovi simboli Dukascopy (append-only nel warehouse Contabo)
 
+Sync esterno completato: `XAGUSD`, `DOLLARIDXUSD`, `USTBONDTRUSD`, timeframe
+`M1/M5/M15/H1`, 48 file mensili per simbolo nel periodo 2022-08 → 2026-07.
+Path Windows: `C:\quantlab-data\bars\symbol=<SYM>\source=dukascopy\tf=<TF>\anchor=0`.
+Le barre esterne sono state copiate in locale. Sono inoltre disponibili 1 238 giorni
+di tick XAGUSD in `C:\quantlab-data\ticks\symbol=XAGUSD`.
+
 Codici verificati con `mktdata.dukascopy.verify_divisor` (divisore 1000, prezzi plausibili):
 `XAGUSD` (bid mediano 30.411 il 2024-06-03), `DOLLARIDXUSD` (104.471), `USTBONDTRUSD` (116.835, CFD T-Bond: **proxy** tassi).
 `USDIDXUSD` non esiste su Dukascopy.
 
-Script: `C:\quantlab\scripts\sync_sweep_external.py` (registra i due simboli nuovi in `mktdata.symbols` e chiama
-`mktdata.sync(sym, "2022-08-01", "2026-07-24 21:00", tfs=("M1","M5","M15","H1"))` con `C:\quantlab\.venv\Scripts\python.exe`).
-Stato al momento del PR S0: sync `XAGUSD` in corso (~30 % delle 34 894 ore, ~60 errori orari con retry automatico);
-`DOLLARIDXUSD` e `USTBONDTRUSD` seguono in coda. Path destinazione: `C:\quantlab-data\ticks\symbol=XAGUSD\...` e
-`C:\quantlab-data\bars\symbol=<S>\source=dukascopy\tf=<TF>\anchor=0\year=<Y>\`.
-Le feature `dxy_intraday_trend`, `ust_proxy_change`, `xagusd_divergence` in questo run sono quindi **NaN (missing)**:
-basta copiare le barre M1 dei tre simboli in `data_root` e rilanciare S0 per popolarle (nessuna modifica di codice).
+Script: `C:\quantlab\scripts\sync_sweep_external.py` (registra i simboli in
+`mktdata.symbols` e chiama `mktdata.sync` per il periodo richiesto). Le barre M1 dei
+tre simboli sono ora locali in `data_root`; il rerun S0 le usa per popolare
+`dxy_intraday_trend`, `ust_proxy_change` e `xagusd_divergence`.
 
 ### Calendario news
 

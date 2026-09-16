@@ -1,3 +1,5 @@
-def run(*args, **kwargs):
-    print("stage s1 non implementato in questa sessione", flush=True)
-    raise SystemExit(2)
+from ..event_study import run_s1
+
+
+def run(cfg):
+    return run_s1(cfg)

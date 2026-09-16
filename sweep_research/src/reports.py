@@ -18,13 +18,20 @@ def _table(headers: list[str], rows: list[list[object]]) -> list[str]:
 NOTES_PATH = Path(__file__).resolve().parents[1] / "NOTES_DUKASCOPY.md"
 
 
+def _fmt(value: object, digits: int = 3) -> object:
+    return round(value, digits) if isinstance(value, float) else value
+
+
 def _notes(path: Path) -> list[str]:
     if not path.exists():
         return ["Nessuna nota (file NOTES_DUKASCOPY.md assente)."]
     return path.read_text().strip().splitlines()
 
 
-def write_reports(events, cfg, leakage: dict, missing: dict, inventory: dict | None = None) -> None:
+def write_reports(
+    events, cfg, leakage: dict, missing: dict, inventory: dict | None = None,
+    s1_summary: dict | None = None,
+) -> None:
     root = Path(cfg.reports_dir)
     root.mkdir(parents=True, exist_ok=True)
     specs = schema_registry(list(events.columns))
@@ -52,6 +59,32 @@ def write_reports(events, cfg, leakage: dict, missing: dict, inventory: dict | N
                 key, value.get("rows", ""), value.get("min_ts", ""),
                 value.get("max_ts", ""), "missing" if value.get("missing") else value.get("files", ""),
             ])
+    if s1_summary is None:
+        candidate = Path(cfg.output_dir) / "s1" / "s1_summary.json"
+        if candidate.exists():
+            s1_summary = json.loads(candidate.read_text())
+    s1_lines = ["## Test statistici eseguiti: 0 (S0 non esegue test)"]
+    if s1_summary:
+        pooled_rows = [
+            [
+                row.get("horizon_min"), row.get("n"), _fmt(row.get("mean")),
+                _fmt(row.get("t_cluster_day")), [_fmt(v) for v in row.get("boot_ci95", [])],
+                _fmt(row.get("hit_rate")),
+            ]
+            for row in s1_summary.get("pooled_dedup_all", [])
+        ]
+        s1_lines = [
+            f"## Test statistici eseguiti: S0=0, S1={s1_summary.get('n_tests_s1', 0)} "
+            "(t cluster-day, nessuna correzione FDR)",
+            "",
+            *_table(["h", "n", "mean", "t_cluster_day", "boot_ci95", "hit_rate"], pooled_rows),
+            "",
+            "Nessuna correzione per test multipli è applicata in S1; arriva in S2.",
+            "S1 non autorizza alcuna conclusione di edge.",
+            "La popolazione raw contiene duplicati ed è riportata solo descrittivamente.",
+            "",
+            "Report completo: [report_s1.html](output/s1/report_s1.html)",
+        ]
     findings = [
         "# FINDINGS", "",
         "## Inventario dati", "",
@@ -63,7 +96,7 @@ def write_reports(events, cfg, leakage: dict, missing: dict, inventory: dict | N
             [s.name, s.source, s.proxy_or_missing, "sì" if s.is_outcome else "no"] for s in specs
         ]),
         "", "## Operazioni Dukascopy", "", *_notes(NOTES_PATH),
-        "", "## Test statistici eseguiti: 0 (S0 non esegue test)",
+        "", *s1_lines,
         "", "## Cosa NON ha funzionato", "",
     ]
     missing_rows = [[name, "missing" if value else "available"] for name, value in missing.items()]
@@ -88,4 +121,8 @@ def regenerate(cfg, output_dir: str | Path) -> None:
     leakage = json.loads((output / "leakage.json").read_text())
     missing = json.loads((output / "missing_external.json").read_text())
     inventory = json.loads((output / "inventory.json").read_text())
-    write_reports(events, replace(cfg, reports_dir=str(output)), leakage, missing, inventory)
+    s1_path = output / "s1" / "s1_summary.json"
+    s1_summary = json.loads(s1_path.read_text()) if s1_path.exists() else None
+    write_reports(
+        events, replace(cfg, reports_dir=str(output)), leakage, missing, inventory, s1_summary
+    )
