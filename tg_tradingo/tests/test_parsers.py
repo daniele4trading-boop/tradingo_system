@@ -1405,6 +1405,69 @@ class TestIvanReentry:
     @pytest.mark.parametrize(
         "msg",
         [
+            # Caso reale 15/09: era diventato un rientro BUY XAUUSD.
+            "Su btc abbiamo preso ieri sera una super Reentry, +2000 pips",
+            "Su bitcoin rientriamo ora",
+            "Rientro sul nasdaq da qui",
+            "Su eurusd rientriamo subito",
+            # Racconto di un rientro già fatto, non un ordine.
+            "Ieri sera abbiamo preso una super reentry",
+            "Stamattina ho fatto una reentry perfetta",
+            "Avevamo fatto una reentry da paura",
+        ],
+    )
+    def test_rientri_altri_mercati_o_passati_non_aprono(self, bridge_state, msg):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        assert parser_ivan_vip(msg, CH_IVAN, bridge_state) is None, msg
+
+    def test_rientro_che_nomina_oro_resta_valido(self, bridge_state):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip("Rientriamo ora su gold", CH_IVAN, bridge_state)
+        assert sig is not None
+        assert sig["action"] == "OPEN" and sig["allow_stack"] is True
+
+    def test_setup_solo_sl_apre_con_un_trade(self, bridge_state):
+        # Caso reale 16/09: "XAUUSD SELL 4313 | SL: 4327", i TP arrivano con
+        # l'EDIT 2,5 minuti dopo; scartarlo ha fatto entrare 7 $ peggio.
+        sig = parser_ivan_vip("XAUUSD SELL 4313 | SL: 4327", CH_IVAN, bridge_state)
+        assert sig is not None
+        assert sig["action"] == "OPEN"
+        assert sig["direction"] == "SELL"
+        assert sig["entry"] == 4313
+        assert sig["sl"] == 4327
+        assert sig["tp_levels"] == []
+        apply_lot_rules(sig, CH_IVAN)
+        assert sig["trades"] == 1
+        assert sig["fixed_lot"] == pytest.approx(0.20)
+        ok, reason = validate_signal(sig)
+        assert ok, reason
+        assert bridge_state.ivan_last_trade["setup_entry"] == 4313
+
+    def test_be_porta_entry_del_segnale(self, bridge_state):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip("Spostiamo SL a BE", CH_IVAN, bridge_state)
+        assert sig is not None
+        assert sig["action"] == "CHECK_AND_BE"
+        assert sig["be_price"] == 4059
+        ok, reason = validate_signal(sig)
+        assert ok, reason
+
+    def test_be_dopo_rientro_usa_entry_del_setup_base(self, bridge_state):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        re_sig = parser_ivan_vip("Rientrate ora a 4062", CH_IVAN, bridge_state)
+        assert re_sig is not None and re_sig["entry"] == 4062
+        assert bridge_state.ivan_last_trade["setup_entry"] == 4059
+        sig = parser_ivan_vip("SL a BE", CH_IVAN, bridge_state)
+        assert sig["be_price"] == 4059
+
+    def test_be_senza_setup_non_porta_be_price(self, bridge_state):
+        sig = parser_ivan_vip("Spostiamo SL a BE", CH_IVAN, bridge_state)
+        assert sig["action"] == "CHECK_AND_BE"
+        assert "be_price" not in sig
+
+    @pytest.mark.parametrize(
+        "msg",
+        [
             # Casi reali CH_IVAN 06/08: avevano aperto 4+1 posizioni a mercato
             # riusando SL/TP del setup vecchio, richiuse subito dall'EA.
             "Se ritraxcia un minimo rientriamo anche qui in sala",

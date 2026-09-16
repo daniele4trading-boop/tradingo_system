@@ -66,7 +66,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.25"
+BRIDGE_VERSION = "2.26"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -1528,6 +1528,34 @@ _REENTRY_WISH = (
 )
 
 
+# Racconto di un rientro già fatto ("abbiamo preso ieri sera una super
+# Reentry"): passato o riferimento temporale passato, non un ordine.
+_REENTRY_PAST = (
+    r"\bABBIAMO\s+(?:PRESO|FATTO|CHIUSO|APERTO)\b|\bHO\s+(?:PRESO|FATTO|CHIUSO|APERTO)\b|"
+    r"\bAVEVAMO\b|\bAVEVO\b|\bIERI\b|\bSTAMATTINA\b|\bSTANOTTE\b|"
+    r"\bLA\s+SCORSA\b|\bSCORS[AO]\b|\bYESTERDAY\b|\bLAST\s+NIGHT\b"
+)
+
+# Altri mercati di cui il canale parla senza operare sull'oro: un "rientro" che
+# li nomina non riguarda l'ultimo setup XAUUSD.
+_OTHER_MARKET_WORDS = (
+    r"\bBTC\w*\b|\bBITCOIN\b|\bETH\w*\b|\bCRYPTO\b|\bCRIPTO\b|"
+    r"\bNAS(?:DAQ|100)?\b|\bUS30\b|\bDOW\b|\bSP500\b|\bUS500\b|\bDAX\b|"
+    r"\bEUR(?:USD|JPY|GBP|CHF|AUD)\b|\bGBP(?:USD|JPY)\b|\bUSDJPY\b|\bOIL\b|\bPETROLIO\b|"
+    r"\bXAG\w*\b|\bSILVER\b|\bARGENTO\b|\bINDICI\b|\bFOREX\b"
+)
+
+
+def _mentions_other_market(upper: str, symbol: str | None = "XAUUSD") -> bool:
+    """True se il testo nomina un mercato diverso dal simbolo del setup."""
+    folded = fold_accents(upper)
+    if symbol and re.search(re.escape(symbol.upper()), folded):
+        return False
+    if re.search(r"\bGOLD\b|\bORO\b|\bXAU\w*\b", folded):
+        return False
+    return bool(re.search(_OTHER_MARKET_WORDS, folded))
+
+
 def _is_deferred_reentry(upper: str) -> bool:
     """True per le frasi di attesa: preannunciano un rientro, non lo ordinano.
 
@@ -1537,6 +1565,8 @@ def _is_deferred_reentry(upper: str) -> bool:
     """
     folded = fold_accents(upper)
     if re.search(_REENTRY_NOT_YET, folded):
+        return True
+    if re.search(_REENTRY_PAST, folded):
         return True
     if re.search(_REENTRY_WISH, folded):
         return True
@@ -1579,6 +1609,18 @@ _IVAN_OPEN_RE = (
     r"(XAUUSD|GOLD)\s+(BUY|SELL)\s*[:@]?\s*(\d+(?:[.,]\d+)?)"
     r"(?:\s*-\s*(\d+(?:[.,]\d+)?))?"
 )
+
+
+def _ivan_setup_entry(trade: dict | None) -> float | None:
+    """Entry pubblicato dal setup base (riferimento del BE del canale)."""
+    if not trade:
+        return None
+    setup_entry = trade.get("setup_entry")
+    if isinstance(setup_entry, (int, float)):
+        return float(setup_entry)
+    if trade.get("allow_stack"):
+        return None
+    return _ivan_entry_ref(trade)
 
 
 def _ivan_entry_ref(trade: dict | None) -> float | None:
@@ -2224,6 +2266,11 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         if not last or not last.get("direction"):
             log.warning(f"[IVAN] Rientro senza setup precedente: {raw[:60]}")
             return None
+        # "Su btc abbiamo preso una super Reentry" (15/09) era diventato un
+        # rientro BUY XAUUSD: il canale parla di un altro mercato.
+        if _mentions_other_market(upper, last.get("symbol") or "XAUUSD"):
+            log.info(f"[IVAN] Rientro su altro mercato, ignorato (REENTRY_OTHER_MARKET): {raw[:60]}")
+            return None
         direction = last["direction"]
         # "Rientrare ora a 4023": il prezzo nel messaggio è il nuovo entry.
         # "Rientri piccola da qui a 58": il canale abbrevia le ultime due cifre.
@@ -2271,18 +2318,25 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         }
         if lot_factor is not None:
             signal["lot_factor"] = lot_factor
-        state.set_ivan_last_trade(signal)
+        state.set_ivan_last_trade({**signal, "setup_entry": _ivan_setup_entry(last)})
         return signal
 
     if contains_any(upper, "SPOSTO SL A BE", "SPOSTIAMO SL A BE", "SL A BE"):
-        log.info(f"[IVAN] CHECK_AND_BE: {raw[:60]}")
-        return {
+        # Il BE di IVAN e' sul prezzo pubblicato nel setup: il fill reale puo'
+        # essere 2-3 $ peggiore (14/09: BE al fill 4278.1 stoppato subito, il
+        # suo 4276 mai toccato). L'EA usa be_price se legale, altrimenti il fill.
+        be_price = _ivan_setup_entry(state.ivan_last_trade)
+        log.info(f"[IVAN] CHECK_AND_BE be_price={be_price}: {raw[:60]}")
+        signal = {
             "action":      "CHECK_AND_BE",
             "symbol":      "XAUUSD",
             "tp_index":    1,
             "magic_base":  ch["magic_base"],
             "raw_message": raw,
         }
+        if be_price is not None:
+            signal["be_price"] = be_price
+        return signal
 
     # "Spostiamo lo stop a 4255": lo stop va aggiornato sulle posizioni aperte.
     # Senza questo ramo il messaggio era UNPARSED e le posizioni restavano sullo
@@ -2371,9 +2425,14 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         if m_sl:
             sl = pf(m_sl.group(1))
 
-    if not tps or sl is None:
+    if sl is None:
         log.debug(f"[IVAN] Segnale incompleto: {raw[:60]}")
         return None
+    # "XAUUSD SELL 4313 | SL: 4327" (16/09): i TP arrivano con l'EDIT 2-3 minuti
+    # dopo, quando il prezzo è già scappato. Il setup con solo SL apre subito
+    # senza TP; l'UPDATE_OPEN successivo aggiunge i target.
+    if not tps:
+        log.warning(f"[IVAN] Setup senza TP, apertura con solo SL (OPEN_SL_ONLY): {raw[:60]}")
 
     # Entry con typo di battitura ("XAUUSD SELL 4326" invece di 4427): se SL e
     # TP sono coerenti fra loro il setup è leggibile, si apre a mercato invece
@@ -2420,7 +2479,7 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
     }
     if lot_factor != 1.0:
         signal["lot_factor"] = lot_factor
-    state.set_ivan_last_trade(signal)
+    state.set_ivan_last_trade({**signal, "setup_entry": _ivan_entry_ref(signal)})
     return signal
 
 

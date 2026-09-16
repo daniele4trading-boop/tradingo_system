@@ -832,6 +832,10 @@ class BridgeState:
             "tp_levels": list(trade.get("tp_levels") or []),
             "lot_factor": trade.get("lot_factor"),
             "allow_stack": bool(trade.get("allow_stack")),
+            # Entry pubblicato dal setup base: il BE del canale ("Spostiamo SL a
+            # BE") si riferisce a questo prezzo, non al fill; un rientro lo
+            # eredita cosi' il riferimento non si perde.
+            "setup_entry": trade.get("setup_entry"),
             "ts": trade.get("ts", time.time()),
         }
         self.save()
