@@ -1,0 +1,41 @@
+symbol: XAUUSD
+data_root: /home/ubuntu/quantlab-data
+output_dir: sweep_research/output
+reports_dir: sweep_research
+seed: 20240801
+hypothesis: continuation
+min_penetration_half_spreads: 1.0
+drift_detrend: {by: [year, ny_hour]}
+cost_model: {spread_stat: median_by_ny_hour}
+s2_nan_bins_excluded: [overnight_range, asia_gap]
+period: {start: "2022-08-01", end: "2026-07-24"}
+timeframes: [M5, M15]
+swing_n: [5, 10, 20]
+tick_size: 0.01
+equal_level_tol_ticks: 20
+equal_level_min_points: 2
+equal_level_base_n: 5
+max_level_age_bars: 500
+level_touch_tol_ticks: 20
+liquidity_density_ticks: 50
+atr_period: 14
+er_period: 20
+burst_fast_atr: 5
+burst_slow_atr: 50
+burst_threshold: 1.5
+hourly_median_days: 20
+vpin_window_bars: 50
+profile_bin_ticks: 10
+profile_value_area: 0.70
+session_tz: America/New_York
+london_tz: Europe/London
+ny_open: "08:30"
+london_open: "08:00"
+trading_day_anchor: "18:00"
+sessions: {asia: ["18:00", "03:00"], london: ["03:00", "08:30"], ny: ["08:30", "17:00"]}
+killzones: {kz_asia: ["20:00", "00:00"], kz_london: ["02:00", "05:00"], kz_ny_am: ["08:30", "11:00"], kz_ny_pm: ["13:30", "16:00"]}
+external: {dxy: DOLLARIDXUSD, ust_proxy: USTBONDTRUSD, silver: XAGUSD, lookback_min: 60}
+outcome_horizons_min: [5, 15, 30, 60, 120]
+mfe_mae_horizon_min: 120
+leakage_check: {n_cuts: 5, sample_events: 200}
+news: {source: null}
