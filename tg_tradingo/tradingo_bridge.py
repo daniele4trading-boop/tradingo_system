@@ -66,7 +66,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.27"
+BRIDGE_VERSION = "2.28"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -1630,6 +1630,24 @@ _IVAN_OPEN_RE = (
     r"(XAUUSD|GOLD)\s+(BUY|SELL)\s*[:@]?\s*(\d+(?:[.,]\d+)?)"
     r"(?:\s*-\s*(\d+(?:[.,]\d+)?))?"
 )
+# "Spostiamo SL a BE", "Mettiamo BE x free risk", "SL a BE", "free risk":
+# ogni forma con cui il canale annuncia lo stop a pareggio. Solo verbi
+# coniugati: "se spostare a BE", "riuscito a mettere BE" non sono ordini.
+_IVAN_BE_RE = (
+    r"\b(?:(?:SPOST|METT|PORT|MUOV)(?:O|IAMO|ATE|ETE|IAMOL[AEIO])|ANDIAMO|SIAMO|SET|MOVE)\s+"
+    r"(?:LO\s+|IL\s+|LA\s+|GLI\s+|TUTTO\s+|TUTTI\s+)?"
+    r"(?:SL\s+|STOP\s+(?:LOSS\s+)?|STOPS?\s+)?(?:(?:A|AL|IN|TO|@)\s+)?"
+    r"(?:BE|B\.E\.?|BREAK\s*EVEN|BREAKEVEN|PAREGGIO)\b|"
+    r"\b(?:SL|STOP)\s+(?:A|AL|IN|TO|@)\s+(?:BE|B\.E\.?|BREAK\s*EVEN|BREAKEVEN|PAREGGIO)\b|"
+    r"\bFREE\s*RISK\b|\bRISK\s*FREE\b"
+)
+# "Come tocca TP 1 mettiamo stop a BE": il BE e' annunciato per dopo, il
+# canale lo ordina poi con un messaggio a se'.
+_IVAN_BE_DEFERRED_RE = r"\bQUANDO\b|\bAPPENA\b|\bCOME\s+TOCCA\b|\bSE\s+TOCCA\b|\bSE\s+ARRIVA\b"
+
+
+def _ivan_be_ordered(upper: str) -> bool:
+    return bool(re.search(_IVAN_BE_RE, upper)) and not re.search(_IVAN_BE_DEFERRED_RE, upper)
 
 
 def _ivan_setup_entry(trade: dict | None) -> float | None:
@@ -2342,7 +2360,7 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         state.set_ivan_last_trade({**signal, "setup_entry": _ivan_setup_entry(last)})
         return signal
 
-    if contains_any(upper, "SPOSTO SL A BE", "SPOSTIAMO SL A BE", "SL A BE"):
+    if _ivan_be_ordered(upper):
         # Il BE di IVAN e' sul prezzo pubblicato nel setup: il fill reale puo'
         # essere 2-3 $ peggiore (14/09: BE al fill 4278.1 stoppato subito, il
         # suo 4276 mai toccato). L'EA usa be_price se legale, altrimenti il fill.
@@ -2576,11 +2594,6 @@ _IVAN_BTC_STACK_RE = (
 _IVAN_BTC_DEFERRED_CLOSE_RE = (
     r"\bA\s+BREVE\b|\bPOTREMMO\b|\bPOTREI\b|\bFORSE\b|\bMAGARI\b|\bPRONTI\b|"
     r"\bSE\s+TORNA\b|\bDOMANI\b|\bPOI\b"
-)
-_IVAN_BTC_BE_RE = (
-    r"\b(?:SPOST\w+|METT\w+|PORT\w+|MUOV\w+|SET|MOVE)\s+(?:LO\s+|IL\s+|LA\s+)?"
-    r"(?:SL\s+|STOP\s+(?:LOSS\s+)?)?(?:A|AL|IN|TO|@)\s+(?:BE|B\.E\.|BREAK\s*EVEN|PAREGGIO)\b|"
-    r"\bSL\s+(?:A|AL|IN|TO|@)\s+BE\b"
 )
 _IVAN_BTC_MOVE_SL_RE = (
     r"(?:STOP\s*LOSS|STOPLOSS|STOP|\bSL\b)\s*(?:A|AL|SU|IN|TO|@|:)?\s*"
@@ -2825,7 +2838,7 @@ def parser_ivan_btc(text: str, ch: dict, state: BridgeState | None = None) -> di
         if close_sig:
             return close_sig
 
-    if re.search(_IVAN_BTC_BE_RE, folded):
+    if _ivan_be_ordered(folded):
         if target is None:
             log.warning(f"[IVAN_BTC] BE senza setup precedente: {raw[:60]}")
             return None

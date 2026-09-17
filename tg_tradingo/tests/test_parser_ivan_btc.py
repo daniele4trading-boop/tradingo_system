@@ -181,6 +181,12 @@ class TestSymbolIsolation:
 
 
 class TestManagement:
+    def test_be_free_risk_phrase(self, bridge_state: BridgeState):
+        parser_ivan_btc(BTC_SETUP, CH_BTC, bridge_state)
+        sig = parser_ivan_btc("Mettiamo BE x free risk", CH_BTC, bridge_state)
+        assert sig["action"] == "CHECK_AND_BE"
+        assert sig["symbol"] == "BTCUSD"
+
     def test_be_named_symbol(self, bridge_state: BridgeState):
         parser_ivan_btc(BTC_SETUP, CH_BTC, bridge_state)
         parser_ivan_btc(XAG_SETUP, CH_BTC, bridge_state)
