@@ -6,11 +6,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "1.13"
+#property version   "1.14"
 #property strict
 #property description "JSON signal executor for TG TradinGo bridge (MT4)"
 
-#define EA_VERSION "1.13"
+#define EA_VERSION "1.14"
 #define MAX_CHANNELS 16
 #define MAX_TRADES_PER_SIGNAL 5
 
@@ -538,9 +538,12 @@ bool ApplyBreakEvenSLSignal(const int ticket, const double signalEntry)
    return ApplyBreakEvenSLEx(ticket, false, signalEntry);
   }
 
-// Break-even level preferred for an order: the channel's published entry when
-// requested and close enough to the fill, otherwise the fill itself.
-double BeTargetForOrder(const string symbol, const double fill, const double signalEntry)
+// Break-even level preferred for an order: the more protective between the
+// fill and the channel's published entry (fill better -> fill, fill worse ->
+// the entry), provided the entry is requested and close enough to the fill;
+// otherwise the fill itself.
+double BeTargetForOrder(const string symbol, const string direction,
+                        const double fill, const double signalEntry)
   {
    if(!InpBeUseSignalEntry || signalEntry <= 0.0)
       return fill;
@@ -550,7 +553,9 @@ double BeTargetForOrder(const string symbol, const double fill, const double sig
    double gapPts = MathAbs(signalEntry - fill) / point;
    if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
       return fill;
-   return signalEntry;
+   if(direction == "BUY")
+      return MathMax(fill, signalEntry);
+   return MathMin(fill, signalEntry);
   }
 
 datetime g_beLastRetry = 0;
@@ -585,12 +590,21 @@ bool ApplyBreakEvenSLEx(const int ticket, const bool fromQueue, const double sig
    string direction = (OrderType() == OP_BUY) ? "BUY" : "SELL";
    int digits = (int)MarketInfo(symbol, MODE_DIGITS);
    double fill = OrderOpenPrice();
-   double be = BeTargetForOrder(symbol, fill, signalEntry);
-   if(signalEntry > 0.0 && MathAbs(be - signalEntry) > MarketInfo(symbol, MODE_POINT))
-      Print("[TradinGo] BE_SIGNAL_ENTRY_TOO_FAR ticket=", ticket,
-            " signal_entry=", DoubleToString(signalEntry, digits),
-            " fill=", DoubleToString(fill, digits),
-            " max_gap_pts=", InpBeSignalEntryMaxGapPoints, " -> BE at fill");
+   double be = BeTargetForOrder(symbol, direction, fill, signalEntry);
+   double point = MarketInfo(symbol, MODE_POINT);
+   if(signalEntry > 0.0 && MathAbs(be - signalEntry) > point)
+     {
+      double gapPts = (point > 0.0) ? MathAbs(signalEntry - fill) / point : 0.0;
+      if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
+         Print("[TradinGo] BE_SIGNAL_ENTRY_TOO_FAR ticket=", ticket,
+               " signal_entry=", DoubleToString(signalEntry, digits),
+               " fill=", DoubleToString(fill, digits),
+               " max_gap_pts=", InpBeSignalEntryMaxGapPoints, " -> BE at fill");
+      else
+         Print("[TradinGo] BE_FILL_BETTER ticket=", ticket,
+               " signal_entry=", DoubleToString(signalEntry, digits),
+               " fill=", DoubleToString(fill, digits), " (", direction, ") -> BE at fill");
+     }
    int buffers[3];
    buffers[0] = InpStopBufferPoints;
    buffers[1] = InpStopBufferPoints + 20;

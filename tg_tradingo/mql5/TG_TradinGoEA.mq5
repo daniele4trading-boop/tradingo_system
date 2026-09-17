@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.27"
+#property version   "2.28"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.27"
+#define EA_VERSION "2.28"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -644,16 +644,20 @@ bool ApplyBreakEvenSLSignal(const ulong ticket, const double signalEntry)
    return ApplyBreakEvenSLEx(ticket, false, signalEntry);
   }
 
-// Break-even level preferred for a position: the channel's published entry when
-// requested and close enough to the fill, otherwise the fill itself.
-double BeTargetForPosition(const double fill, const double signalEntry)
+// Break-even level preferred for a position: the more protective between the
+// fill and the channel's published entry (fill better than the entry -> fill,
+// fill worse -> the entry, so the stop matches the channel's), provided the
+// entry is requested and close enough to the fill; otherwise the fill itself.
+double BeTargetForPosition(const string direction, const double fill, const double signalEntry)
   {
    if(!InpBeUseSignalEntry || signalEntry <= 0.0)
       return fill;
    double gapPts = MathAbs(signalEntry - fill) / g_sym.Point();
    if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
       return fill;
-   return signalEntry;
+   if(direction == "BUY")
+      return MathMax(fill, signalEntry);
+   return MathMin(fill, signalEntry);
   }
 
 datetime g_beLastRetry = 0;
@@ -691,13 +695,21 @@ bool ApplyBreakEvenSLEx(const ulong ticket, const bool fromQueue, const double s
    string direction = (g_pos.PositionType() == POSITION_TYPE_BUY) ? "BUY" : "SELL";
    g_sym.Name(symbol);
    double fill = g_pos.PriceOpen();
-   double be = BeTargetForPosition(fill, signalEntry);
+   double be = BeTargetForPosition(direction, fill, signalEntry);
    int digits = (int)g_sym.Digits();
    if(signalEntry > 0.0 && MathAbs(be - signalEntry) > g_sym.Point())
-      Print("[TradinGo] BE_SIGNAL_ENTRY_TOO_FAR ticket=", ticket,
-            " signal_entry=", DoubleToString(signalEntry, digits),
-            " fill=", DoubleToString(fill, digits),
-            " max_gap_pts=", InpBeSignalEntryMaxGapPoints, " -> BE at fill");
+     {
+      double gapPts = MathAbs(signalEntry - fill) / g_sym.Point();
+      if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
+         Print("[TradinGo] BE_SIGNAL_ENTRY_TOO_FAR ticket=", ticket,
+               " signal_entry=", DoubleToString(signalEntry, digits),
+               " fill=", DoubleToString(fill, digits),
+               " max_gap_pts=", InpBeSignalEntryMaxGapPoints, " -> BE at fill");
+      else
+         Print("[TradinGo] BE_FILL_BETTER ticket=", ticket,
+               " signal_entry=", DoubleToString(signalEntry, digits),
+               " fill=", DoubleToString(fill, digits), " (", direction, ") -> BE at fill");
+     }
    int buffers[3];
    buffers[0] = InpStopBufferPoints;
    buffers[1] = InpStopBufferPoints + 20;
