@@ -16,13 +16,29 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.25** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.25** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
-| EA MT4 | **1.12** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
+| Bridge Python | **2.26** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.26** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| EA MT4 | **1.13** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**2.26 / MT5 2.26 / MT4 1.13:** casi IVAN del 14/09 e 16/09. (1) Bridge: "Su btc
+abbiamo preso ieri sera una super Reentry" apriva un rientro BUY XAUUSD: un rientro che
+nomina un altro mercato (BTC, ETH, indici, coppie forex, argento) o racconta un rientro
+già fatto (passato, "ieri", "stamattina") viene ignorato (`REENTRY_OTHER_MARKET`).
+(2) Bridge: `XAUUSD SELL 4313 | SL: 4327` senza TP veniva scartato e si entrava solo
+sull'EDIT 2,5 minuti dopo a 7 $ di distanza: il setup con solo SL apre subito
+(`OPEN` con `tp_levels=[]`, un trade a `fixed_lot_single`), i TP arrivano con
+l'`UPDATE_OPEN`. (3) EA: `UPDATE_OPEN` senza posizioni aperte passa dallo stesso guard di
+drift dei rientri (`InpUpdateOpenMaxDriftPctOfSl`, 40 % della distanza entry→SL,
+`UPDATE_OPEN_CANCELLED`). (4) BE all'entry del segnale: `CHECK_AND_BE` porta `be_price`
+(entry pubblicato dal setup base, ereditato dai rientri); l'EA mette lo SL lì se il
+livello è legale e entro `InpBeSignalEntryMaxGapPoints` (500) dal fill, altrimenti
+ricade sul fill (`BE_SIGNAL_ENTRY_ILLEGAL` / `BE_SIGNAL_ENTRY_TOO_FAR`), resta in coda
+`BE_PENDING` se nemmeno il fill è legale e non peggiora mai uno SL già più stretto
+(`BE_SKIPPED_WORSE_THAN_CURRENT_SL`). `InpBeUseSignalEntry=false` ripristina il BE al fill.
 
 **MT5 2.25 / MT4 1.12 (solo EA):** casi IVAN del 10/09. (1) Tolleranza off-market
 `InpRangeTolerancePoints` da 150 a 200 punti (default e tutti i preset): il setup

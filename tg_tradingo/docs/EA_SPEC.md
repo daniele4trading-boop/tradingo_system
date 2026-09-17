@@ -98,7 +98,7 @@ Il bridge sovrascrive l'intero file ad ogni evento (scrittura atomica tmp + repl
 | `CLOSE_SELECTIVE` | Chiusura **parziale selettiva**: campo `keep` = `BEST` / `HIGHEST` / `LOWEST` / `ALL_BUT_NEWEST`. Restano aperte solo le posizioni con quel prezzo di apertura (per direzione, tolleranza 10 punti), le altre si chiudono. `BEST` = migliori per la direzione (SELL: prezzo più alto, BUY: più basso). `ALL_BUT_NEWEST` ("chiudo la rientry") = chiude solo l'ultimo blocco aperto — le posizioni aperte entro `InpBatchWindowSec` dalla più recente — e lascia il setup principale; se tutte le posizioni sono nello stesso blocco non fa nulla |
 | `BREAK_EVEN_PRICE` | Sposta SL a `be_price` |
 | `CLOSE_HALF_BE` | Chiudi metà volume + BE sul resto (ORO: `60 PIPS CLOSE OR BREKIVEN`) |
-| `CHECK_AND_BE` | Se TP1 non chiuso, sposta SL a entry |
+| `CHECK_AND_BE` | Se TP1 non chiuso, sposta SL a entry. Opzionale `be_price` (IVAN: entry pubblicato dal setup): l'EA lo usa se legale ed entro `InpBeSignalEntryMaxGapPoints` dal fill, altrimenti SL al fill |
 | `CHECK_AND_CLOSE_TP` | Chiudi trade con `tp_index` se ancora aperto |
 
 ### Entry range

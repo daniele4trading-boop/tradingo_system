@@ -6,11 +6,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "1.12"
+#property version   "1.13"
 #property strict
 #property description "JSON signal executor for TG TradinGo bridge (MT4)"
 
-#define EA_VERSION "1.12"
+#define EA_VERSION "1.13"
 #define MAX_CHANNELS 16
 #define MAX_TRADES_PER_SIGNAL 5
 
@@ -50,6 +50,9 @@ input double InpMaxLevelDeviationPct     = 2.0;
 // longer the published one. Skip the re-entry when the drift from the signal
 // entry exceeds this % of the entry->SL distance. 0 = off.
 input double InpReentryMaxDriftPctOfSl   = 40.0;
+// UPDATE_OPEN (edited setup) with no order open opens fresh: same drift rule as
+// re-entries, in % of entry->SL (the TPs may arrive minutes after the setup). 0 = off.
+input double InpUpdateOpenMaxDriftPctOfSl = 40.0;
 // A new setup arriving while positions are open (allow_stack=false) modifies
 // their SL/TP: never apply a TP on the losing side of the position's open price,
 // nor an SL already crossed by the market (would liquidate at once).
@@ -62,6 +65,10 @@ input int    InpNakedFallbackSlPoints    = 1200;
 // legal (order in loss, or entry closer than the broker stops level) keep the
 // current SL instead of clamping past the entry.
 input bool   InpBeNeverWorseThanEntry    = true;
+// CHECK_AND_BE may carry be_price = the entry published by the channel; use it
+// when legal vs the market and within this gap from the fill, else the fill.
+input bool   InpBeUseSignalEntry         = true;
+input int    InpBeSignalEntryMaxGapPoints = 500;
 // When SL=entry is not legal yet (price still within the stops level of the
 // entry) the break-even stays pending and is retried on every tick until the
 // market allows it; an order that closes meanwhile is simply dropped.
@@ -494,28 +501,56 @@ bool BePendingContains(const int ticket)
    return false;
   }
 
-void BePendingAdd(const int ticket)
+double g_bePendingTarget[];
+
+void BePendingAdd(const int ticket, const double signalEntry)
   {
    if(BePendingContains(ticket))
       return;
    int n = ArraySize(g_bePending);
    ArrayResize(g_bePending, n + 1);
+   ArrayResize(g_bePendingTarget, n + 1);
    g_bePending[n] = ticket;
+   g_bePendingTarget[n] = signalEntry;
   }
 
 void BePendingRemove(const int index)
   {
    int n = ArraySize(g_bePending);
    for(int i = index; i < n - 1; i++)
+     {
       g_bePending[i] = g_bePending[i + 1];
+      g_bePendingTarget[i] = g_bePendingTarget[i + 1];
+     }
    ArrayResize(g_bePending, n - 1);
+   ArrayResize(g_bePendingTarget, n - 1);
   }
 
-bool ApplyBreakEvenSLEx(const int ticket, const bool fromQueue);
+bool ApplyBreakEvenSLEx(const int ticket, const bool fromQueue, const double signalEntry);
 
 bool ApplyBreakEvenSL(const int ticket)
   {
-   return ApplyBreakEvenSLEx(ticket, false);
+   return ApplyBreakEvenSLEx(ticket, false, 0.0);
+  }
+
+bool ApplyBreakEvenSLSignal(const int ticket, const double signalEntry)
+  {
+   return ApplyBreakEvenSLEx(ticket, false, signalEntry);
+  }
+
+// Break-even level preferred for an order: the channel's published entry when
+// requested and close enough to the fill, otherwise the fill itself.
+double BeTargetForOrder(const string symbol, const double fill, const double signalEntry)
+  {
+   if(!InpBeUseSignalEntry || signalEntry <= 0.0)
+      return fill;
+   double point = MarketInfo(symbol, MODE_POINT);
+   if(point <= 0.0)
+      return fill;
+   double gapPts = MathAbs(signalEntry - fill) / point;
+   if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
+      return fill;
+   return signalEntry;
   }
 
 datetime g_beLastRetry = 0;
@@ -533,22 +568,29 @@ void ProcessBePending()
          BePendingRemove(i);
          continue;
         }
-      if(ApplyBreakEvenSLEx(tk, true))
+      if(ApplyBreakEvenSLEx(tk, true, g_bePendingTarget[i]))
         {
          Print("[TradinGo] BE_PENDING_APPLIED ticket=", tk,
-               " sl=", DoubleToString(OrderOpenPrice(), (int)MarketInfo(OrderSymbol(), MODE_DIGITS)));
+               " sl=", DoubleToString(OrderStopLoss(), (int)MarketInfo(OrderSymbol(), MODE_DIGITS)));
          BePendingRemove(i);
         }
      }
   }
 
-bool ApplyBreakEvenSLEx(const int ticket, const bool fromQueue)
+bool ApplyBreakEvenSLEx(const int ticket, const bool fromQueue, const double signalEntry)
   {
    if(!OrderSelect(ticket, SELECT_BY_TICKET))
       return false;
    string symbol = OrderSymbol();
    string direction = (OrderType() == OP_BUY) ? "BUY" : "SELL";
-   double be = OrderOpenPrice();
+   int digits = (int)MarketInfo(symbol, MODE_DIGITS);
+   double fill = OrderOpenPrice();
+   double be = BeTargetForOrder(symbol, fill, signalEntry);
+   if(signalEntry > 0.0 && MathAbs(be - signalEntry) > MarketInfo(symbol, MODE_POINT))
+      Print("[TradinGo] BE_SIGNAL_ENTRY_TOO_FAR ticket=", ticket,
+            " signal_entry=", DoubleToString(signalEntry, digits),
+            " fill=", DoubleToString(fill, digits),
+            " max_gap_pts=", InpBeSignalEntryMaxGapPoints, " -> BE at fill");
    int buffers[3];
    buffers[0] = InpStopBufferPoints;
    buffers[1] = InpStopBufferPoints + 20;
@@ -562,13 +604,27 @@ bool ApplyBreakEvenSLEx(const int ticket, const bool fromQueue)
       AdjustStopsToMinDistance(symbol, direction, nsl, ntp, buffers[attempt]);
       double tol = MarketInfo(symbol, MODE_POINT);
       bool worseThanEntry = (direction == "BUY") ? (nsl < be - tol) : (nsl > be + tol);
+      // The published entry is not legal (market already beyond it): fall back
+      // to the fill for this attempt instead of giving up the break-even.
+      if(InpBeNeverWorseThanEntry && worseThanEntry && MathAbs(be - fill) > tol)
+        {
+         Print("[TradinGo] BE_SIGNAL_ENTRY_ILLEGAL ticket=", ticket,
+               " signal_entry=", DoubleToString(be, digits),
+               " would_be_sl=", DoubleToString(nsl, digits),
+               " fill=", DoubleToString(fill, digits), " (", direction, ") -> BE at fill");
+         be = fill;
+         nsl = fill;
+         ntp = OrderTakeProfit();
+         AdjustStopsToMinDistance(symbol, direction, nsl, ntp, buffers[attempt]);
+         worseThanEntry = (direction == "BUY") ? (nsl < be - tol) : (nsl > be + tol);
+        }
       if(InpBeNeverWorseThanEntry && worseThanEntry)
         {
          if(fromQueue)
             return false;
          if(InpBePendingRetry)
            {
-            BePendingAdd(ticket);
+            BePendingAdd(ticket, signalEntry);
             Print("[TradinGo] BE_PENDING ticket=", ticket,
                   " entry=", DoubleToString(be, (int)MarketInfo(symbol, MODE_DIGITS)),
                   " would_be_sl=", DoubleToString(nsl, (int)MarketInfo(symbol, MODE_DIGITS)),
@@ -581,8 +637,24 @@ bool ApplyBreakEvenSLEx(const int ticket, const bool fromQueue)
                   " (", direction, ") — SL kept unchanged");
          return false;
         }
-      if(ModifyOrderSLTP(ticket, nsl, 0, buffers[attempt]))
+      // Never move an existing stop to a worse level: a BE at the signal entry
+      // can sit below (BUY) / above (SELL) a stop already tightened.
+      double curSl = OrderStopLoss();
+      if(curSl > 0.0 && ((direction == "BUY") ? (nsl < curSl - tol) : (nsl > curSl + tol)))
+        {
+         Print("[TradinGo] BE_SKIPPED_WORSE_THAN_CURRENT_SL ticket=", ticket,
+               " sl=", DoubleToString(curSl, digits),
+               " would_be_sl=", DoubleToString(nsl, digits), " (", direction, ") — SL kept");
          return true;
+        }
+      if(ModifyOrderSLTP(ticket, nsl, 0, buffers[attempt]))
+        {
+         if(MathAbs(be - fill) > tol)
+            Print("[TradinGo] BE_AT_SIGNAL_ENTRY ticket=", ticket,
+                  " sl=", DoubleToString(nsl, digits),
+                  " fill=", DoubleToString(fill, digits), " (", direction, ")");
+         return true;
+        }
      }
    return false;
   }
@@ -1001,9 +1073,21 @@ bool ReentryDriftAllows(const string channelFile, const string json,
                         const string symbol, const string direction,
                         const double entry, const double sl)
   {
-   if(InpReentryMaxDriftPctOfSl <= 0.0)
-      return true;
    if(!JsonGetBool(json, "allow_stack"))
+      return true;
+   return EntryDriftAllows(channelFile, json, symbol, direction, entry, sl,
+                           InpReentryMaxDriftPctOfSl, "REENTRY_CANCELLED",
+                           "CANCELLED_REENTRY_DRIFT");
+  }
+
+// Generic drift guard: skip the open when the market already moved more than
+// maxPct of the entry->SL distance away from the published entry.
+bool EntryDriftAllows(const string channelFile, const string json,
+                      const string symbol, const string direction,
+                      const double entry, const double sl, const double maxPct,
+                      const string logTag, const string statTag)
+  {
+   if(maxPct <= 0.0)
       return true;
    if(entry <= 0.0 || sl <= 0.0)
       return true;
@@ -1015,17 +1099,17 @@ bool ReentryDriftAllows(const string channelFile, const string json,
    if(price <= 0.0)
       return true;
    double driftPct = MathAbs(price - entry) / slDistance * 100.0;
-   if(driftPct <= InpReentryMaxDriftPctOfSl)
+   if(driftPct <= maxPct)
       return true;
    int digits = (int)MarketInfo(symbol, MODE_DIGITS);
-   Print("[TradinGo] REENTRY_CANCELLED ", JsonGetString(json, "channel_id"), " ",
+   Print("[TradinGo] ", logTag, " ", JsonGetString(json, "channel_id"), " ",
          symbol, " ", direction,
          " entry=", DoubleToString(entry, digits),
          " price=", DoubleToString(price, digits),
          " sl=", DoubleToString(sl, digits),
          " drift=", DoubleToString(driftPct, 1), "% of SL distance",
-         " max=", DoubleToString(InpReentryMaxDriftPctOfSl, 1), "%");
-   AppendSignalStat(channelFile, json, symbol, direction, "CANCELLED_REENTRY_DRIFT",
+         " max=", DoubleToString(maxPct, 1), "%");
+   AppendSignalStat(channelFile, json, symbol, direction, statTag,
                     0, 0, entry, price, 0.0, 0, 0);
    return false;
   }
@@ -1316,6 +1400,13 @@ bool HandleUpdateOpen(const string channelFile, const string json)
         }
       if(IsOpenBlocked())
          return false;
+      double updEntry = JsonGetNumber(json, "entry");
+      if(updEntry <= 0.0 && rangeLo > 0.0 && rangeHi > 0.0)
+         updEntry = (rangeLo + rangeHi) / 2.0;
+      if(!EntryDriftAllows(channelFile, json, symbol, direction, updEntry, sl,
+                           InpUpdateOpenMaxDriftPctOfSl, "UPDATE_OPEN_CANCELLED",
+                           "CANCELLED_UPDATE_OPEN_DRIFT"))
+         return true;
       Print("[TradinGo] UPDATE_OPEN but no positions — opening fresh");
       return OpenSplitTrades(symbol, direction, lot, sl, tps, magicBase,
                              channelFile, json, entryStatus, rangeLo, rangeHi, distPoints);
@@ -1738,6 +1829,10 @@ bool HandleCloseHalfBe(const string json)
 bool HandleCheckAndBe(const string json)
   {
    int magicBase = JsonGetInt(json, "magic_base");
+   double signalEntry = JsonGetNumber(json, "be_price");
+   if(signalEntry > 0.0)
+      Print("[TradinGo] CHECK_AND_BE be_price=", DoubleToString(signalEntry, 2),
+            " (signal entry, fallback to fill if not legal)");
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -1746,7 +1841,7 @@ bool HandleCheckAndBe(const string json)
          continue;
       if(!IsOurOrderMagic(OrderMagicNumber(), magicBase, MAX_TRADES_PER_SIGNAL))
          continue;
-      ApplyBreakEvenSL(OrderTicket());
+      ApplyBreakEvenSLSignal(OrderTicket(), signalEntry);
      }
    return true;
   }
