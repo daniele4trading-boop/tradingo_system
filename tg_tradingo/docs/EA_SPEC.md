@@ -34,6 +34,7 @@ L'EA non richiede Telegram né Python: legge solo i JSON.
 | `signal_ch_oro.json` | Sala ORO VIP | 14100 |
 | `signal_ch_stark.json` | Sala Stark | 14000 |
 | `signal_ch_ivan.json` | IvanTrades VIP | 17000 |
+| `signal_ch_ivanbtc.json` | IvanTrades - BTC (BTCUSD/XAGUSD) | 18000 |
 
 Stato iniziale / idle: `{"action": "NONE"}`.
 

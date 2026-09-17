@@ -680,6 +680,10 @@ class BridgeState:
         self.gold_last_cmd: dict | None = None
         self.stark_last_trade: dict | None = None
         self.ivan_last_trade: dict | None = None
+        # Canale IvanTrades-BTC: un setup per simbolo (BTCUSD, XAGUSD), separato
+        # dallo stato oro del canale VIP. ivan_btc_last_symbol = ultimo setup emesso.
+        self.ivan_btc_trades: dict[str, dict] = {}
+        self.ivan_btc_last_symbol: str | None = None
         self.oro_pending_dir: str | None = None
         self.oro_pending_entry: float | None = None
         self.oro_pending_range: list[float] | None = None
@@ -707,6 +711,12 @@ class BridgeState:
             self.gold_last_cmd = glc if isinstance(glc, dict) else None
             self.stark_last_trade = data.get("stark_last_trade")
             self.ivan_last_trade = data.get("ivan_last_trade")
+            btc = data.get("ivan_btc_trades")
+            self.ivan_btc_trades = {
+                str(k): v for k, v in btc.items() if isinstance(v, dict)
+            } if isinstance(btc, dict) else {}
+            last_sym = data.get("ivan_btc_last_symbol")
+            self.ivan_btc_last_symbol = last_sym if isinstance(last_sym, str) else None
             oro_p = data.get("oro_pending", {})
             self.oro_pending_dir = oro_p.get("direction")
             self.oro_pending_entry = oro_p.get("entry")
@@ -745,6 +755,8 @@ class BridgeState:
             "gold_last_cmd": self.gold_last_cmd,
             "stark_last_trade": self.stark_last_trade,
             "ivan_last_trade": self.ivan_last_trade,
+            "ivan_btc_trades": self.ivan_btc_trades,
+            "ivan_btc_last_symbol": self.ivan_btc_last_symbol,
             "oro_pending": {
                 "direction": self.oro_pending_dir,
                 "entry": self.oro_pending_entry,
@@ -840,6 +852,30 @@ class BridgeState:
         }
         self.save()
 
+    def set_ivan_btc_trade(self, trade: dict) -> None:
+        symbol = str(trade.get("symbol") or "").upper()
+        if not symbol:
+            return
+        self.ivan_btc_trades[symbol] = {
+            "symbol": symbol,
+            "direction": trade.get("direction"),
+            "entry": trade.get("entry"),
+            "sl": trade.get("sl"),
+            "tp_levels": list(trade.get("tp_levels") or []),
+            "lot_factor": trade.get("lot_factor"),
+            "allow_stack": bool(trade.get("allow_stack")),
+            "setup_entry": trade.get("setup_entry"),
+            "ts": trade.get("ts", time.time()),
+        }
+        self.ivan_btc_last_symbol = symbol
+        self.save()
+
+    def clear_ivan_btc_trade(self, symbol: str) -> None:
+        self.ivan_btc_trades.pop(symbol.upper(), None)
+        if self.ivan_btc_last_symbol == symbol.upper():
+            self.ivan_btc_last_symbol = next(iter(self.ivan_btc_trades), None)
+        self.save()
+
     def set_oro_pending(
         self,
         direction: str,
@@ -921,6 +957,8 @@ class EphemeralBridgeState(BridgeState):
         self.gold_last_cmd: dict | None = None
         self.stark_last_trade: dict | None = None
         self.ivan_last_trade: dict | None = None
+        self.ivan_btc_trades: dict[str, dict] = {}
+        self.ivan_btc_last_symbol: str | None = None
         self.oro_pending_dir: str | None = None
         self.oro_pending_entry: float | None = None
         self.oro_pending_range: list[float] | None = None
@@ -1212,6 +1250,11 @@ def apply_lot_rules(signal: dict, ch: dict) -> dict:
 
     signal["use_fixed_lot"] = True
     signal.pop("risk_percent", None)
+    # Cap di deviazione dal prezzo che l'EA applica a SL/TP/entry di questo
+    # canale (BTC/XAG pubblicano TP al 10-30%: il 2% dell'oro li annullerebbe).
+    max_dev = exec_cfg.get("max_level_deviation_pct")
+    if isinstance(max_dev, (int, float)) and max_dev > 0:
+        signal["max_level_deviation_pct"] = float(max_dev)
 
     lot_factor = float(signal.get("lot_factor", 1.0))
 

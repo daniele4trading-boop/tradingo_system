@@ -113,6 +113,23 @@
         "tp_levels_expected": 4,
         "notes": "4 TP standard (4x0.10). Meta size = lot_factor 0.5 (4x0.05)."
       }
+    },
+    {
+      "id": "CH_IVANBTC",
+      "enabled": false,
+      "telegram_id": -1003504001845,
+      "name": "IvanTrades - BTC",
+      "parser": "ivan_btc",
+      "signal_file": "signal_ch_ivanbtc.json",
+      "magic_base": 18000,
+      "execution": {
+        "mode": "fixed_lot",
+        "fixed_lot_single": 0.01,
+        "fixed_lot_per_tp": 0.01,
+        "tp_levels_expected": 1,
+        "max_level_deviation_pct": 60,
+        "notes": "Solo BTCUSD/XAGUSD, lotto minimo 0.01 per posizione (4 TP = 4x0.01, XAG TP OPEN = 1x0.01). Stato separato dal VIP oro. Solo Vantage: InpChannels=forex,ivan,ivanbtc."
+      }
     }
   ]
 }

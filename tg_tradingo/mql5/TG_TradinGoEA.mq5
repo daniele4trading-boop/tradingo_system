@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.26"
+#property version   "2.27"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.26"
+#define EA_VERSION "2.27"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -966,12 +966,22 @@ bool StopsOnCorrectSide(const string direction, const double price,
 //| this check the stops get clamped to the legal side and the        |
 //| position opens only to be closed at once, paying the spread.      |
 //+------------------------------------------------------------------+
+// The payload may carry max_level_deviation_pct: BTC/XAG setups (CH_IVANBTC)
+// publish TPs 10-30% away from price, which the 2% gold default would cancel.
+double MaxLevelDeviationPct(const string json)
+  {
+   double fromJson = JsonGetNumber(json, "max_level_deviation_pct");
+   if(fromJson > 0.0)
+      return fromJson;
+   return InpMaxLevelDeviationPct;
+  }
+
 bool LevelsNearMarket(const string symbol, const double price,
                       const double sl, const double tp, const double entry,
-                      double &outWorstPct)
+                      const double maxPct, double &outWorstPct)
   {
    outWorstPct = 0.0;
-   if(InpMaxLevelDeviationPct <= 0.0 || price <= 0.0)
+   if(maxPct <= 0.0 || price <= 0.0)
       return true;
    double levels[3];
    levels[0] = sl;
@@ -985,7 +995,7 @@ bool LevelsNearMarket(const string symbol, const double price,
       if(devPct > outWorstPct)
          outWorstPct = devPct;
      }
-   return (outWorstPct <= InpMaxLevelDeviationPct);
+   return (outWorstPct <= maxPct);
   }
 
 //+------------------------------------------------------------------+
@@ -1016,15 +1026,16 @@ bool OpenMarket(const string symbol, const string direction, const double lot,
       AdjustStopsToMinDistance(symbol, direction, nsl, ntp);
    double price = (direction == "BUY") ? g_sym.Ask() : g_sym.Bid();
    double devPct = 0.0;
+   double maxDevPct = MaxLevelDeviationPct(json);
    if(!LevelsNearMarket(symbol, price,
-                        sl, tp, SignalEntryFromJson(json, rangeLo, rangeHi), devPct))
+                        sl, tp, SignalEntryFromJson(json, rangeLo, rangeHi), maxDevPct, devPct))
      {
       Print("[TradinGo] Open skipped ", symbol, " ", direction,
             " off-market levels price=", DoubleToString(price, (int)g_sym.Digits()),
             " sl=", DoubleToString(sl, (int)g_sym.Digits()),
             " tp=", DoubleToString(tp, (int)g_sym.Digits()),
             " deviation=", DoubleToString(devPct, 2), "%",
-            " max=", DoubleToString(InpMaxLevelDeviationPct, 2), "%");
+            " max=", DoubleToString(maxDevPct, 2), "%");
       AppendSignalStat(channelFile, json, symbol, direction, "CANCELLED_OFF_MARKET",
                        rangeLo, rangeHi, SignalEntryFromJson(json, rangeLo, rangeHi),
                        0.0, distancePoints, tpIndex, magic);
