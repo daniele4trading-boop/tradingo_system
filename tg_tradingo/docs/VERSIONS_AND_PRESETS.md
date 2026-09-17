@@ -16,13 +16,22 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.27** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.27** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
-| EA MT4 | **1.13** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
+| Bridge Python | **2.28** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.28** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| EA MT4 | **1.14** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**2.28 / MT5 2.28 / MT4 1.14:** BE al livello più protettivo tra fill ed entry del
+segnale (`BeTargetForPosition`/`BeTargetForOrder`): fill migliore → BE al fill (log
+`BE_FILL_BETTER`), fill peggiore → entry del segnale; fallback al fill oltre 500 punti o se
+il livello non è legale, invariati. Bridge: il BE di IVAN (VIP e BTC) riconosce tutte le forme operative del
+canale ("Mettiamo BE x free risk", "Spostiamo stop a BE", "Portiamo lo stop a BE",
+"Siamo free risk"), solo con verbo coniugato: "se spostare a BE", "riuscito a mettere BE"
+e gli annunci per dopo ("Come tocca TP 1 mettiamo stop a BE", "quando/appena") non
+emettono `CHECK_AND_BE`. Il 17/09 "Mettiamo BE x free risk" non era stato riconosciuto.
 
 **2.27 / MT5 2.27:** canale `CH_IVANBTC` (IvanTrades - BTC, magic 18000,
 `signal_ch_ivanbtc.json`, parser `ivan_btc`). Opera SOLO su BTCUSD/XAGUSD con stato per

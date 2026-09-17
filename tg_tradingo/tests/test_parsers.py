@@ -635,6 +635,44 @@ class TestCHIvan:
         assert sig["action"] == "CHECK_AND_BE"
         assert sig["symbol"] == "XAUUSD"
 
+    @pytest.mark.parametrize("text", [
+        "Mettiamo BE x free risk",
+        "Spostiamo SL a BE x free risk",
+        "Mettiamo SL a BE",
+        "Portiamo lo stop a BE",
+        "Siamo free risk",
+        "Andiamo a break even",
+    ])
+    def test_check_and_be_variants(self, tmp_path: Path, text: str):
+        state = BridgeState(tmp_path / "st.json")
+        parser_ivan_vip(
+            "XAUUSD SELL 4370 | TP1: 4363 | TP2: 4360 | TP3: 4355 | TP4: 4340 | SL: 4383",
+            CH_IVAN, state,
+        )
+        sig = parser_ivan_vip(text, CH_IVAN, state)
+        assert sig["action"] == "CHECK_AND_BE"
+        assert sig["symbol"] == "XAUUSD"
+        assert sig["be_price"] == 4370.0
+
+    @pytest.mark.parametrize("text", [
+        "Spostiamo SL a 4276",
+        "Mettiamo un altro scaglione",
+        "Vi dico io se spostare a BE",
+        "SL per chi non è riuscito a mettere BE in live",
+        "Come tocca TP 1 mettiamo stop a BE",
+        "Appena tocca TP1 spostiamo SL a BE",
+        "Sto valutando un sell",
+        "Riassunto di ieri ahahaha",
+    ])
+    def test_be_not_triggered(self, tmp_path: Path, text: str):
+        state = BridgeState(tmp_path / "st.json")
+        parser_ivan_vip(
+            "XAUUSD SELL 4370 | TP1: 4363 | TP2: 4360 | TP3: 4355 | TP4: 4340 | SL: 4383",
+            CH_IVAN, state,
+        )
+        sig = parser_ivan_vip(text, CH_IVAN, state)
+        assert sig is None or sig["action"] != "CHECK_AND_BE"
+
     def test_close_now(self):
         sig = parser_ivan_vip("CHIUDERE ORA", CH_IVAN)
         assert sig["action"] == "CLOSE_ALL_SYMBOL"
