@@ -16,13 +16,24 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.26** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.26** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| Bridge Python | **2.27** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.27** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.13** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**2.27 / MT5 2.27:** canale `CH_IVANBTC` (IvanTrades - BTC, magic 18000,
+`signal_ch_ivanbtc.json`, parser `ivan_btc`). Opera SOLO su BTCUSD/XAGUSD con stato per
+simbolo (`ivan_btc_trades`), separato da quello del VIP oro: i setup BTC ripubblicati nel
+VIP e i commenti su XAU/SOL nel canale BTC sono ignorati. Prezzi letti per simbolo
+("78.800" BTC = 78800, "64.365" XAG = 64,365 $) con range di plausibilità; niente
+riparazione typo/zone dell'oro. Lotti fissi 0.01 per posizione (4 TP = 4x0.01, `TP: OPEN`
+= 1x0.01). Rientri con prezzo senza simbolo assegnati al setup a cui il prezzo è vicino.
+EA: il payload può portare `max_level_deviation_pct` (dal config `execution`), che
+sostituisce `InpMaxLevelDeviationPct` (2 %) per quel canale: i TP BTC al 10-30 % dal
+prezzo non vengono più annullati come off-market. Solo Vantage: `InpChannels=forex,ivan,ivanbtc`.
 
 **2.26 / MT5 2.26 / MT4 1.13:** casi IVAN del 14/09 e 16/09. (1) Bridge: "Su btc
 abbiamo preso ieri sera una super Reentry" apriva un rientro BUY XAUUSD: un rientro che

@@ -1,0 +1,60 @@
+# IvanTrades - BTC (id -1003504001845) — campioni reali apr-set 2026, parser ivan_btc
+# formato: [id] data | testo (\n = a capo)
+
+[211] 2026-04-26T22:34 | E via di 100 PIPSS di reentry 🏌🏼‍♂️🏌🏼‍♂️
+[214] 2026-04-26T22:49 | Mettiamola a be
+[222] 2026-04-29T10:01 | BTCUSD SELL 77700\n\nTP 1 77000\nTP 2 76500\nTP 3 76000\nTP 4 75000\nTP 5 70000\n\nSL @ 79200
+[234] 2026-04-30T15:47 | Sto aggiungendo un altro scaglione
+[241] 2026-05-04T13:39 | BTCUSD SELL 78900\n\nTP 1 78000\nTP 2 77900\nTP 3 77800\nTP 4 65000\n\nSL @ 81500
+[250] 2026-05-05T13:41 | E poi rientriamo cattivi non appena ci dà conferme
+[259] 2026-05-09T07:08 | BTCUSD SELL 80200\n\nTP 1 78000\nTP 2 77900\nTP 3 77800\nTP 4 65000\n\nSL @ 81700
+[279] 2026-05-24T18:51 | BTCUSD SELL 76600\n\nTP 1 75000\nTP 2 74000\nTP 3 73000\nTP 4 56000\n\nSL @ 80000\n\nStop largo quindi iniziamo a posizionarci con size basse
+[284] 2026-05-28T08:23 | Spostiamo SL a BE
+[288] 2026-06-03T08:49 | BTCUSD BUY 66900\n\nTP 1 68000\nTP 2 69000\nTP 3 70000\nTP 4 74000\n\nSL @ 64500\n\nSwing🌊
+[292] 2026-06-05T00:22 | Vediamo domani se rientrare
+[295] 2026-06-17T08:33 | BTCUSD SELL 65100\n\nTP 1 58000\nTP 2 50000\nTP 3 45000\nTP 4 40000\n\nSL @ 69000\n\nSwing🌊 stop e TP larghi
+[301] 2026-06-21T20:56 | BTCUSD SELL 63800\n\nTP1: 63400\nTP2: 63300\nTP3: 63200\nTP4: 61000\n\n🛑 SL: 65000
+[305] 2026-06-22T09:06 | Mettiamo a BE  qui
+[306] 2026-06-22T16:43 | SL dopo TP 2 peccato
+[318] 2026-07-02T14:39 | BTC SELL NOW
+[321] 2026-07-10T00:28 | BTCUSD SELL 63000\n\nTP1: 61000\nTP2: 57000\nTP3: 53000\nTP4: 42000\n\n🛑 SL: 66000\n\nSwing 🏌🏼‍♂️
+[326] 2026-07-12T22:30 | Sto entrando ancora SELL su BTC
+[347] 2026-07-17T12:49 | Poi se sale ancora vi dirò di rientrare quando sarà il momento
+[354] 2026-07-20T16:56 | Rientriamo da qui
+[378] 2026-07-26T22:19 | Chi è entrato da poco nel gruppo potete entrare ora con stessi SL e TP dell’ultimo segnale
+[381] 2026-07-27T07:32 | Aggiungiamo una piccola entry qui a 65250
+[388] 2026-07-28T07:12 | Chiudete le voci più basse e lasciate solo quelle più premium da in alto
+[393] 2026-07-29T08:14 | BTCUSD SELL 64300\n\nTP1: 60000\nTP2: 57000\nTP3: 53000\nTP4: 42000\n\n🛑 SL: 67000\n\nSwing 🏌🏼‍♂️
+[399] 2026-07-30T15:00 | Entriamo di nuovo
+[400] 2026-07-30T15:00 | BTCUSD SELL 64600\n\nTP1: 60000\nTP2: 57000\nTP3: 53000\nTP4: 42000\n\n🛑 SL: 67000\n\nSwing 🏌🏼‍♂️
+[406] 2026-07-31T09:11 | Aspetterei un retracemnt fino a quella zona per entrare
+[418] 2026-08-01T14:11 | Per la reentry aspetto che torni un po su BTC fino all’incirca questa zona almeno
+[423] 2026-08-02T09:49 | BTCUSD SELL 63200\n\nTP1: 60000\nTP2: 57000\nTP3: 53000\nTP4: 42000\n\n🛑 SL: 67000\n\nSwing 🏌🏼‍♂️\nMeta size \n(Solo per chi ancora non è dentro il trade)
+[427] 2026-08-03T22:25 | Altro piccolo scaglione qui a 63500 SELL
+[433] 2026-08-04T18:40 | Altra piccola entry qui a 64200
+[464] 2026-08-12T12:36 | BTCUSD SELL 64100\n\nTP1: 60000\nTP2: 57000\nTP3: 53000\nTP4: 42000\n\n🛑 SL: 67000\n\nMeta size da qui per i nuovi entrati in sala
+[466] 2026-08-12T14:05 | REENTRY PERFETTA🏌🏼‍♂️🏌🏼‍♂️
+[480] 2026-08-18T10:26 | A breve rientriamo🤝
+[485] 2026-08-18T14:42 | A Breve potremmo rientrare anche intorno qui
+[500] 2026-08-19T15:34 | Anche lo scorso drop prima abbiamo preso SL e poi Big Win
+[509] 2026-08-21T09:15 | BTCUSD SELL 77900\n\nTP1: 68000\nTP2: 62000\nTP3: 55000\nTP4: 42000\n\n🛑 SL: 84000\n\nSize medio piccole
+[515] 2026-08-24T13:17 | Entriamo di nuovo da qui
+[516] 2026-08-24T13:18 | Rientriamo con size piccole mi raccomando !
+[526] 2026-08-28T11:39 | Buongiorno, per rientrare aspetto la rottura dei 78.000$
+[540] 2026-08-30T23:39 | Mi raccomando per chi nel precedente trade ha preso STOP, ridepositate e rientrate Short ora
+[545] 2026-08-30T23:39 | Io anche sono rientrato a cazzo duro
+[565] 2026-09-02T12:04 | Proviamo Long su XAGUSD 64.365\n\n TP: OPEN \n\nSL 63.000
+[566] 2026-09-02T12:05 | Stop loss a 63.000
+[570] 2026-09-02T13:36 | Spostiamo SL a BE
+[573] 2026-09-03T10:15 | BTCUSD SELL 77530\n\nTP1: 68000\nTP2: 62000\nTP3: 55000\nTP4: 42000\n\n🛑 SL: 81500\n\nSOLO PER CHI È ENTRATO DA POCO E NON È ANCORA DENTRO IL SELL\n\nSize medio piccole
+[576] 2026-09-03T15:04 | A breve potremmo chiudere
+[578] 2026-09-03T15:36 | Chiduamo quasi tutto su BTC
+[583] 2026-09-08T17:10 | BTCUSD SELL 78700\n\nTP1: 74000\nTP2: 70000\nTP3: 65000\nTP4: 55000\n\n🛑 SL: 81500\n\nSize medio piccole
+[588] 2026-09-10T13:40 | XAGUSD rientriamo BUY 64.500\nSize medio basse\n\nSL: 62.700
+[591] 2026-09-10T16:25 | Aggiornato SL
+[593] 2026-09-11T14:33 | Per i nuovi entrati nella sala BTC
+[594] 2026-09-11T14:34 | potete rientrare ora da 78.800
+[595] 2026-09-11T14:34 | SELL
+[597] 2026-09-11T16:28 | CHE REENTRY🤩🤩🤩
+[601] 2026-09-14T22:20 | BTCUSD SELL 78700\n\nTP1: 74000\nTP2: 70000\nTP3: 65000\nTP4: 55000\n\n🛑 SL: 81500\n\nSize medio piccole
+[609] 2026-09-16T14:19 | Mettiamo SL a BE

@@ -66,7 +66,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.26"
+BRIDGE_VERSION = "2.27"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -383,6 +383,27 @@ IGNORE_PATTERNS: dict[str, tuple[str, ...]] = {
         r"CECCHINO",
         r"INIZIO\s+SETTIMANA",
         r"SIAMO\s+IN\s+LIVE",
+        r"TIK\s*TOK",
+        r"YOUTUBE\.COM",
+        r"^HTTPS?://",
+    ),
+    "ivan_btc": (
+        r"^SL\W*$",
+        r"^PECCATO$",
+        r"BUONGIORNO",
+        r"BUONASERA",
+        r"SCREEN\s+D",
+        r"MANDATEMI",
+        r"BOOO+MM",
+        r"TP\s*\d+\s+HIT",
+        r"BE\s+HIT",
+        r"HIT\s+SQUAD",
+        r"TAKE\s+PROFIT",
+        r"RICARICATE",
+        r"RIDEPOSITATE",
+        r"PRONTI\s+A\s+CHIUDERE",
+        r"SL\s+DOPO\s+TP",
+        r"AGGIORNATO\s+SL",
         r"TIK\s*TOK",
         r"YOUTUBE\.COM",
         r"^HTTPS?://",
@@ -1478,7 +1499,7 @@ _REENTRY_IMMEDIATE = (
 
 _REENTRY_DEFERRED = (
     r"\bASPETT(?:IAMO|O|ATE|A|ANDO|IAMOCI)\b|\bATTENDIAMO\b|\bPOI\b|\bDOPO\b|"
-    r"\bPIU\s+TARDI\b|\bPRONTI\b|\bCON\s+CALMA\b|"
+    r"\bPIU\s+TARDI\b|\bPRONTI\b|\bCON\s+CALMA\b|\bA\s+BREVE\b|\bTRA\s+POCO\b|"
     r"\bPAZIENZA\b|\bDOMANI\b|\bLATER\b|\bWAIT\b|"
     # Annuncio di una zona/livello: descrive dove si rientrerà, non ordina nulla
     # ("Zona reentry 56-53" aveva aperto a mercato).
@@ -2484,6 +2505,436 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PARSER IVANTRADES - BTC
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Canale separato dal VIP oro: opera SOLO su BTCUSD e XAGUSD, con stato per
+# simbolo (state.ivan_btc_trades). Ivan ripubblica nel VIP i setup BTC come
+# vetrina e viceversa parla di XAU qui: ogni parser resta sul proprio mercato.
+#
+# Formati:
+#   BTCUSD SELL 78700 / TP1: 74000 … TP4: 55000 / 🛑 SL: 81500 / Size medio piccole
+#   BTCUSD SELL 77700 / TP 1 77000 … / SL @ 79200
+#   Proviamo Long su XAGUSD 64.365 / TP: OPEN / SL 63.000
+#   XAGUSD rientriamo BUY 64.500 / Size medio basse / SL: 62.700
+#   Aggiungiamo una piccola entry qui a 65250     -> rientro (allow_stack)
+#   potete rientrare ora da 78.800                -> rientro (78.800 = 78800)
+#   Spostiamo SL a BE / Mettiamo SL a BE          -> CHECK_AND_BE sull'ultimo simbolo
+#   Stop loss a 63.000                            -> UPDATE_SL XAGUSD
+#   Chiduamo quasi tutto su BTC                   -> CLOSE_SELECTIVE keep=BEST
+#
+# Prezzi: BTC usa il punto delle migliaia ("78.800" = 78800), XAG i decimali
+# ("64.365" = 64,365 $). La lettura è per simbolo con controllo di plausibilità.
+
+IVAN_BTC_SYMBOL_ALIASES = {
+    "BTCUSD": "BTCUSD", "BTC": "BTCUSD", "BITCOIN": "BTCUSD",
+    "XAGUSD": "XAGUSD", "XAG": "XAGUSD", "SILVER": "XAGUSD", "ARGENTO": "XAGUSD",
+}
+_IVAN_BTC_SYM_RE = r"(BTCUSD|BITCOIN|BTC|XAGUSD|SILVER|ARGENTO|XAG)"
+_IVAN_BTC_DIR_RE = r"(BUY|SELL|LONG|SHORT)"
+_IVAN_BTC_PRICE_RE = r"(\d+(?:[.,]\d+)*)"
+# "BTCUSD SELL 78700", "XAGUSD rientriamo BUY 64.500", "BTC SELL NOW"
+_IVAN_BTC_OPEN_RE = (
+    rf"\b{_IVAN_BTC_SYM_RE}\b\s+(?:RIENTRIAMO\s+|RIENTRO\s+|RIENTRATE\s+)?"
+    rf"{_IVAN_BTC_DIR_RE}\s*[:@]?\s*{_IVAN_BTC_PRICE_RE}"
+)
+# "Proviamo Long su XAGUSD 64.365"
+_IVAN_BTC_OPEN_VERB_RE = (
+    rf"\b(?:PROVIAMO|PROVO|ENTRIAMO|ENTRO|APRIAMO|APRO|RIENTRIAMO)\s+{_IVAN_BTC_DIR_RE}"
+    rf"\s+(?:SU|ON|SUL)\s+{_IVAN_BTC_SYM_RE}\b\s*[:@]?\s*{_IVAN_BTC_PRICE_RE}"
+)
+# Range di plausibilità dei prezzi per simbolo (esclude letture sbagliate).
+IVAN_BTC_PRICE_BOUNDS = {"BTCUSD": (10_000.0, 1_000_000.0), "XAGUSD": (5.0, 500.0)}
+# Due rientri sullo stesso prezzo entro la finestra dedup = MSG + EDIT.
+IVAN_BTC_REENTRY_DEDUP_GAP = {"BTCUSD": 50.0, "XAGUSD": 0.05}
+# Gli swing del canale restano aperti settimane: un nuovo setup nello stesso
+# verso entro questa finestra è un'aggiunta, non un setup indipendente.
+IVAN_BTC_SETUP_ACTIVE_SEC = 7 * 24 * 3600.0
+# Un rientro senza setup completo vale solo se è un ordine: verbo imperativo,
+# marcatore "ora/qui" o un prezzo esplicito ("E via di 100 pips di reentry" no).
+_IVAN_BTC_REENTRY_ORDER_RE = (
+    r"\bRIENTR(?:IAMO|ATE|IAMOCI|ARE)\b|\bAGGIUNG(?:IAMO|O|ETE)\b|\bENTRIAMO\b|"
+    r"\bSTO\s+ENTRANDO\b|\bSTO\s+AGGIUNGENDO\b|\bPOTETE\s+RIENTRARE\b"
+)
+# Mercati di cui il canale parla senza operare: oro (canale VIP), SOL, ETH…
+_IVAN_BTC_FOREIGN_MARKET = (
+    r"\bXAU\w*\b|\bGOLD\b|\bORO\b|\bSOL(?:USD|ANA)?\b|\bETH\w*\b|\bETHEREUM\b|"
+    r"\bNAS(?:DAQ|100)?\b|\bUS30\b|\bSP500\b|\bDAX\b|\bEUR\w{3}\b|\bGBP\w{3}\b|\bUSDJPY\b"
+)
+# Messaggi rivolti a una parte della sala ("per i nuovi entrati", "solo per chi
+# non è ancora dentro"): non sono un'aggiunta per chi è già in posizione.
+_IVAN_BTC_AUDIENCE_RE = (
+    r"\bNUOVI\s+ENTRATI\b|\bNUOVI\s+ARRIVATI\b|\bPER\s+CHI\b|\bSOLO\s+PER\b|"
+    r"\bCHI\s+(?:E|E'|È|HA|NON|ANCORA|ERA)\b|\bAPPENA\s+ENTRAT[OI]\b|\bENTRAT[OI]\s+DA\s+POCO\b"
+)
+# Parole che dichiarano un'aggiunta esplicita a un setup già aperto.
+_IVAN_BTC_STACK_RE = (
+    r"\bAGGIUNG\w+\b|\bALTR[AO]\s+(?:PICCOL[AO]\s+)?(?:ENTRY|SCAGLIONE|ENTRATA|POSIZIONE)\b|"
+    r"\bSCAGLIONE\b|\bENTRIAMO\s+DI\s+NUOVO\b|\bRIENTR\w*\b|\bRE[- ]?ENTRY\b|"
+    r"\bSTO\s+ENTRANDO\s+ANCORA\b|\bMEDIARE\b"
+)
+_IVAN_BTC_DEFERRED_CLOSE_RE = (
+    r"\bA\s+BREVE\b|\bPOTREMMO\b|\bPOTREI\b|\bFORSE\b|\bMAGARI\b|\bPRONTI\b|"
+    r"\bSE\s+TORNA\b|\bDOMANI\b|\bPOI\b"
+)
+_IVAN_BTC_BE_RE = (
+    r"\b(?:SPOST\w+|METT\w+|PORT\w+|MUOV\w+|SET|MOVE)\s+(?:LO\s+|IL\s+|LA\s+)?"
+    r"(?:SL\s+|STOP\s+(?:LOSS\s+)?)?(?:A|AL|IN|TO|@)\s+(?:BE|B\.E\.|BREAK\s*EVEN|PAREGGIO)\b|"
+    r"\bSL\s+(?:A|AL|IN|TO|@)\s+BE\b"
+)
+_IVAN_BTC_MOVE_SL_RE = (
+    r"(?:STOP\s*LOSS|STOPLOSS|STOP|\bSL\b)\s*(?:A|AL|SU|IN|TO|@|:)?\s*"
+    rf"{_IVAN_BTC_PRICE_RE}"
+)
+
+
+def _ivan_btc_price(token: str | None, symbol: str) -> float | None:
+    """Prezzo del canale letto per simbolo.
+
+    BTC: "78.800", "78,800", "78700" → 78800 (punto/virgola = migliaia).
+    XAG: "64.365" → 64.365, "63.000" → 63.0, "64,5" → 64.5 (decimali).
+    Ritorna ``None`` se il valore non è plausibile per il simbolo.
+    """
+    if token is None:
+        return None
+    tok = token.strip()
+    if not re.fullmatch(r"\d+(?:[.,]\d+)*", tok):
+        return None
+    value: float | None
+    if symbol == "BTCUSD":
+        if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", tok):
+            value = float(re.sub(r"[.,]", "", tok))
+        else:
+            value = pf(tok)
+    else:
+        if tok.count(".") + tok.count(",") > 1:
+            return None
+        value = pf(tok)
+    if value is None:
+        return None
+    lo, hi = IVAN_BTC_PRICE_BOUNDS[symbol]
+    return value if lo <= value <= hi else None
+
+
+def _ivan_btc_symbol_in_text(folded: str) -> str | None:
+    """Simbolo nominato nel testo (BTCUSD/XAGUSD), ``None`` se nessuno."""
+    m = re.search(rf"\b{_IVAN_BTC_SYM_RE}\b", folded)
+    return IVAN_BTC_SYMBOL_ALIASES[m.group(1)] if m else None
+
+
+def _ivan_btc_direction(word: str) -> str:
+    return "BUY" if word in ("BUY", "LONG") else "SELL"
+
+
+def _ivan_btc_levels(raw: str, symbol: str) -> tuple[list[float], float | None]:
+    """TP e SL dalle righe del setup ("TP1: 74000", "🛑 SL: 81500", "TP: OPEN")."""
+    tps: list[float] = []
+    sl: float | None = None
+    for line in re.split(r"[\n|]", raw):
+        lu = strip_md(line).upper().strip()
+        lu = re.sub(r"^[^A-Z0-9]+", "", lu)
+        m_tp = re.match(rf"TP\s*\d*\s*[:.@]?\s*{_IVAN_BTC_PRICE_RE}", lu)
+        if m_tp:
+            v = _ivan_btc_price(m_tp.group(1), symbol)
+            if v is not None:
+                tps.append(v)
+            continue
+        m_sl = re.match(rf"SL\s*[:@]?\s*{_IVAN_BTC_PRICE_RE}", lu)
+        if m_sl and sl is None:
+            sl = _ivan_btc_price(m_sl.group(1), symbol)
+    return tps, sl
+
+
+def _ivan_btc_levels_coherent(direction: str, entry: float | None,
+                              sl: float | None, tps: list[float]) -> bool:
+    if entry is None:
+        return True
+    if sl is not None and ((sl >= entry) if direction == "BUY" else (sl <= entry)):
+        return False
+    return all((tp > entry) if direction == "BUY" else (tp < entry) for tp in tps)
+
+
+def _ivan_btc_reentry_is_repeat(last: dict | None, entry: float | None, symbol: str) -> bool:
+    """Stesso ordine ripetuto entro la finestra dedup (MSG+EDIT, "Rientriamo da qui"
+    subito dopo il setup): non si apre una seconda volta."""
+    if not isinstance(last, dict):
+        return False
+    ts = last.get("ts")
+    if not isinstance(ts, (int, float)) or (time.time() - ts) > IVAN_REENTRY_DEDUP_TTL_SEC:
+        return False
+    prev = last.get("entry")
+    if entry is None or prev is None:
+        return True
+    return abs(float(entry) - float(prev)) <= IVAN_BTC_REENTRY_DEDUP_GAP[symbol]
+
+
+# Un prezzo senza simbolo appartiene al setup da cui dista meno di questa quota.
+IVAN_BTC_PRICE_MATCH_PCT = 0.15
+
+
+def _ivan_btc_target_symbol(folded: str, state: BridgeState) -> str | None:
+    """Simbolo a cui si riferisce un comando di gestione.
+
+    Quello nominato nel testo; altrimenti, se c'è un prezzo, il setup aperto a
+    cui il prezzo è vicino ("rientrare da 78.800" è BTC anche se l'ultimo setup
+    era XAG: 78,8 $ non è vicino a 64,5); altrimenti l'ultimo setup emesso.
+    """
+    mentioned = _ivan_btc_symbol_in_text(folded)
+    if mentioned:
+        return mentioned
+    tokens = re.findall(_IVAN_BTC_PRICE_RE, folded)
+    if tokens and len(state.ivan_btc_trades) > 1:
+        matches: set[str] = set()
+        for symbol, trade in state.ivan_btc_trades.items():
+            ref = _ivan_entry_ref(trade)
+            if ref is None:
+                continue
+            for tok in tokens:
+                v = _ivan_btc_price(tok, symbol)
+                if v is not None and abs(v - ref) <= ref * IVAN_BTC_PRICE_MATCH_PCT:
+                    matches.add(symbol)
+        if len(matches) == 1:
+            return matches.pop()
+        if len(matches) > 1:
+            return None
+    return state.ivan_btc_last_symbol
+
+
+def parser_ivan_btc(text: str, ch: dict, state: BridgeState | None = None) -> dict | None:
+    if state is None:
+        state, _ = _ensure_runtime()
+    raw = text.strip()
+    if not raw:
+        return None
+
+    upper = strip_md(raw).upper()
+    folded = fold_accents(upper)
+
+    m_open = re.search(_IVAN_BTC_OPEN_RE, folded)
+    if m_open:
+        symbol = IVAN_BTC_SYMBOL_ALIASES[m_open.group(1)]
+        direction = _ivan_btc_direction(m_open.group(2))
+        entry_tok = m_open.group(3)
+    else:
+        m_open = re.search(_IVAN_BTC_OPEN_VERB_RE, folded)
+        if m_open:
+            symbol = IVAN_BTC_SYMBOL_ALIASES[m_open.group(2)]
+            direction = _ivan_btc_direction(m_open.group(1))
+            entry_tok = m_open.group(3)
+        else:
+            symbol = direction = entry_tok = None
+
+    tps: list[float] = []
+    sl: float | None = None
+    if symbol is not None:
+        tps, sl = _ivan_btc_levels(raw, symbol)
+    has_setup = symbol is not None and sl is not None
+
+    pat = matched_ignore_pattern("ivan_btc", folded)
+    if pat and not has_setup:
+        log.debug(f"[IVAN_BTC] Ignorato ({pat}): {raw[:60]}")
+        return None
+
+    mentioned = _ivan_btc_symbol_in_text(folded)
+    # "Sia XAU che BTC" / "Menomale che c'è XAG": il canale commenta altri
+    # mercati; senza il nostro simbolo nel testo non c'è nulla da eseguire.
+    if not has_setup and mentioned is None and re.search(_IVAN_BTC_FOREIGN_MARKET, folded):
+        log.info(f"[IVAN_BTC] Altro mercato, ignorato (OTHER_MARKET): {raw[:60]}")
+        return None
+
+    if has_setup:
+        entry = _ivan_btc_price(entry_tok, symbol)
+        if entry is None:
+            log.warning(f"[IVAN_BTC] Entry non plausibile per {symbol}: {raw[:60]}")
+            return None
+        if not _ivan_btc_levels_coherent(direction, entry, sl, tps):
+            log.warning(
+                f"[IVAN_BTC] Livelli incoerenti {direction} {symbol} entry={entry} "
+                f"SL={sl} TP={tps}, scartato (LEVELS_INCOHERENT): {raw[:60]}"
+            )
+            return None
+        if not tps:
+            log.warning(f"[IVAN_BTC] Setup senza TP, apertura con solo SL (OPEN_SL_ONLY): {raw[:60]}")
+        audience = re.search(_IVAN_BTC_AUDIENCE_RE, folded) is not None
+        last = state.ivan_btc_trades.get(symbol)
+        # "Aggiungiamo una entry qui" nel corpo del setup, o un nuovo setup nello
+        # stesso verso di quello ancora in corso ("Size PICCOLE" + "Entriamo di
+        # nuovo da qui" un secondo dopo): posizione in più. Le ripubblicazioni
+        # "per i nuovi entrati" non lo sono: senza allow_stack l'EA, se è già
+        # in posizione, aggiorna solo SL/TP.
+        same_dir_recent = (
+            isinstance(last, dict)
+            and last.get("direction") == direction
+            and isinstance(last.get("ts"), (int, float))
+            and (time.time() - float(last["ts"])) <= IVAN_BTC_SETUP_ACTIVE_SEC
+        )
+        stack = not audience and (
+            bool(re.search(_IVAN_BTC_STACK_RE, folded)) or same_dir_recent
+        )
+        if stack and _ivan_btc_reentry_is_repeat(last, entry, symbol):
+            log.info(f"[IVAN_BTC] Aggiunta già emessa di recente, ignorata: {raw[:60]}")
+            return None
+        log.info(
+            f"[IVAN_BTC] OPEN {direction} {symbol} @ {entry} TP={tps} SL={sl} stack={stack}"
+        )
+        signal = {
+            "action":      "OPEN",
+            "direction":   direction,
+            "symbol":      symbol,
+            "entry":       entry,
+            "tp_levels":   tps,
+            "sl":          sl,
+            "magic_base":  ch["magic_base"],
+            "raw_message": raw,
+        }
+        if stack:
+            signal["allow_stack"] = True
+        setup_entry = entry
+        if stack and last and isinstance(last.get("setup_entry"), (int, float)):
+            setup_entry = float(last["setup_entry"])
+        state.set_ivan_btc_trade({**signal, "setup_entry": setup_entry})
+        return signal
+
+    target = _ivan_btc_target_symbol(folded, state)
+
+    # Chiusure: "Chiduamo quasi tutto su BTC" lascia qualcosa aperto
+    # (keep=BEST), "chiudiamo tutto" chiude il simbolo.
+    if re.search(_IVAN_BTC_DEFERRED_CLOSE_RE, folded) and (
+        match_selective_close_intent(folded) or match_close_all_intent(folded)[0]
+    ):
+        log.info(f"[IVAN_BTC] Chiusura annunciata ma non operativa, ignorata: {raw[:60]}")
+        return None
+    if target is not None:
+        partial = re.search(r"\bQUASI\s+TUTT[OE]\b|\bQUALCOSINA\b|\bQUALCOSA\s+(?:OPEN|APERT[AO])\b", folded)
+        close_verb_partial = re.search(
+            r"\b(?:CHIUDIAMO|CHIDUAMO|CHIUDAMO|CHIUDIAM|CHIUDO|CHIUDETE|CHIUDIAMONE)\s+"
+            r"(?:QUASI\s+TUTT[OE]|LA\s+MAGGIOR\s+PARTE|BUONA\s+PARTE)\b",
+            folded,
+        )
+        if partial and (close_verb_partial or match_close_all_intent(folded)[0]):
+            state.pop_close_price_pending(ch["id"])
+            log.info(f"[IVAN_BTC] CLOSE_SELECTIVE keep=BEST {target}: {raw[:60]}")
+            return {
+                "action":      "CLOSE_SELECTIVE",
+                "keep":        "BEST",
+                "symbol":      target,
+                "magic_base":  ch["magic_base"],
+                "raw_message": raw,
+            }
+        close_sig = _maybe_close_from_text(folded, ch, raw, state, symbol=target)
+        if close_sig:
+            return close_sig
+
+    if re.search(_IVAN_BTC_BE_RE, folded):
+        if target is None:
+            log.warning(f"[IVAN_BTC] BE senza setup precedente: {raw[:60]}")
+            return None
+        last = state.ivan_btc_trades.get(target)
+        be_price = _ivan_setup_entry(last)
+        log.info(f"[IVAN_BTC] CHECK_AND_BE {target} be_price={be_price}: {raw[:60]}")
+        signal = {
+            "action":      "CHECK_AND_BE",
+            "symbol":      target,
+            "tp_index":    1,
+            "magic_base":  ch["magic_base"],
+            "raw_message": raw,
+        }
+        if be_price is not None:
+            signal["be_price"] = be_price
+        return signal
+
+    # "Stop loss a 63.000": nuovo SL esplicito sull'ultimo simbolo.
+    words = re.findall(r"[A-Z]+", folded)
+    m_sl = re.search(_IVAN_BTC_MOVE_SL_RE, folded)
+    if m_sl and target is not None and len(words) <= 8 and not re.search(r"\bBE\b", folded):
+        new_sl = _ivan_btc_price(m_sl.group(1), target)
+        if new_sl is not None:
+            last = state.ivan_btc_trades.get(target)
+            direction = (last or {}).get("direction")
+            if last:
+                state.set_ivan_btc_trade({**last, "sl": new_sl})
+            log.info(f"[IVAN_BTC] UPDATE_SL {target} {direction} SL={new_sl}")
+            return {
+                "action":      "UPDATE_SL",
+                "direction":   direction,
+                "symbol":      target,
+                "new_sl":      new_sl,
+                "magic_base":  ch["magic_base"],
+                "raw_message": raw,
+            }
+
+    # Rientro / aggiunta senza setup completo: riapre l'ultimo setup del simbolo.
+    if _is_reentry_intent(folded) or re.search(_IVAN_BTC_STACK_RE, folded):
+        if _is_deferred_reentry(folded):
+            log.info(f"[IVAN_BTC] Rientro annunciato ma non operativo, ignorato: {raw[:60]}")
+            return None
+        has_price = any(
+            _ivan_btc_price(tok, target) is not None
+            for tok in re.findall(_IVAN_BTC_PRICE_RE, folded)
+        ) if target else False
+        if not (
+            has_price
+            or re.search(_IVAN_BTC_REENTRY_ORDER_RE, folded)
+            or re.search(_REENTRY_IMMEDIATE, folded)
+        ):
+            log.info(f"[IVAN_BTC] Rientro narrativo, ignorato (REENTRY_NARRATIVE): {raw[:60]}")
+            return None
+        if re.search(_IVAN_BTC_AUDIENCE_RE, folded):
+            log.info(f"[IVAN_BTC] Rientro rivolto ai nuovi entrati, ignorato (AUDIENCE): {raw[:60]}")
+            return None
+        if target is None:
+            log.warning(f"[IVAN_BTC] Rientro senza setup precedente: {raw[:60]}")
+            return None
+        last = state.ivan_btc_trades.get(target)
+        if not last or not last.get("direction"):
+            log.warning(f"[IVAN_BTC] Rientro senza setup {target}: {raw[:60]}")
+            return None
+        direction = last["direction"]
+        m_dir = re.search(rf"\b{_IVAN_BTC_DIR_RE}\b", folded)
+        if m_dir and _ivan_btc_direction(m_dir.group(1)) != direction:
+            log.warning(
+                f"[IVAN_BTC] Rientro {m_dir.group(1)} contrario al setup {direction} "
+                f"{target}, ignorato (REENTRY_DIRECTION_MISMATCH): {raw[:60]}"
+            )
+            return None
+        entry = None
+        for tok in re.findall(_IVAN_BTC_PRICE_RE, folded):
+            entry = _ivan_btc_price(tok, target)
+            if entry is not None:
+                break
+        last_ref = _ivan_entry_ref(last)
+        if entry is None:
+            entry = last_ref
+        tps = list(last.get("tp_levels") or [])
+        sl = last.get("sl")
+        if entry is not None:
+            tps = [tp for tp in tps if (tp > entry if direction == "BUY" else tp < entry)]
+            if sl is not None and (sl >= entry if direction == "BUY" else sl <= entry):
+                sl = None
+        if _ivan_btc_reentry_is_repeat(last, entry, target):
+            log.info(f"[IVAN_BTC] Rientro già emesso di recente, ignorato: {raw[:60]}")
+            return None
+        log.info(
+            f"[IVAN_BTC] OPEN (rientro) {direction} {target} @ {entry} TP={tps} SL={sl}"
+        )
+        signal = {
+            "action":      "OPEN",
+            "direction":   direction,
+            "symbol":      target,
+            "entry":       entry,
+            "tp_levels":   tps,
+            "sl":          sl,
+            "allow_stack": True,
+            "magic_base":  ch["magic_base"],
+            "raw_message": raw,
+        }
+        state.set_ivan_btc_trade({**signal, "setup_entry": _ivan_setup_entry(last)})
+        return signal
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MAPPA PARSER
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -2494,6 +2945,7 @@ PARSERS = {
     "sala_oro":   parser_sala_oro,
     "sala_stark": parser_sala_stark,
     "ivan_vip":   parser_ivan_vip,
+    "ivan_btc":   parser_ivan_btc,
     "placeholder": lambda _t, _c: None,
 }
 
