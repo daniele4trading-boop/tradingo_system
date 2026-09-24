@@ -1,0 +1,41 @@
+{
+  "broker": {
+    "base_url": "https://dx.velotrade.com/dxsca-web",
+    "domain": "default",
+    "account": "default:XXXXXXXXX",
+    "username_env": "DXTRADE_USERNAME",
+    "password_env": "DXTRADE_PASSWORD",
+    "symbol_map": {"XAUUSD": "XAU"}
+  },
+  "execution": {
+    "mode": "paper",
+    "live_orders_ack": "",
+    "quantity_per_tp": 0.01,
+    "quantity_increment": 0.01,
+    "max_legs_per_setup": 4,
+    "off_market_tolerance": 2.0,
+    "max_level_deviation_pct": 2.0,
+    "max_sl_widen_factor": 2.0,
+    "be_signal_entry_max_gap": 5.0,
+    "batch_window_sec": 120,
+    "hard_protection": true,
+    "poll_sec": 2.0
+  },
+  "risk": {
+    "initial_balance": 10000.0,
+    "daily_loss_pct": 0.0,
+    "max_dd_pct": 0.0,
+    "block_new_at_allowance_used": 0.6,
+    "close_all_at_allowance_used": 0.9,
+    "max_open_legs": 8,
+    "heartbeat_max_age_sec": 180
+  },
+  "paths": {
+    "signals_dir": "C:\\TG_TradinGo\\signals_dx",
+    "signal_file": "signal_ch_ivan.json",
+    "heartbeat_file": "tradingo_heartbeat.json",
+    "killswitch_file": "dx_executor.killswitch",
+    "state_dir": "C:\\TG_TradinGo\\signals_dx\\dx_state",
+    "log_dir": "C:\\TG_TradinGo\\logs"
+  }
+}
