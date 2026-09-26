@@ -1,5 +1,5 @@
 ; TG_TradinGoEA — preset conto REALE Xlence (5510042850, EUR): solo canale IVAN
-; Lotti fissi 0.05 per posizione (setup IVAN = 4 TP -> 0.20 lotti totali).
+; Lotti fissi 0.02 per posizione (setup IVAN = 4 TP -> 0.08 lotti totali): il margine oro su Xlence e' ~1:50 (~377 EUR per 0.05), con 0.05 entravano solo 2 TP.
 ; Nessun guard DD/killswitch (scelta dell'utente: conto a rischio accettato).
 ; Suffisso simbolo del broker: "(nessuno)".
 ; Tolleranza off-market 200 pt, BE all'entry del segnale con fallback al fill (EA >= 2.26).
@@ -9,7 +9,7 @@ InpChannels=ivan
 InpSymbolSuffix=
 InpLotMultiplier=1.0
 InpAddLotFactor=0.5
-InpLotIvan=0.05
+InpLotIvan=0.02
 InpLotStark=0.0
 InpLotGold=0.0
 InpLotOro=0.0
