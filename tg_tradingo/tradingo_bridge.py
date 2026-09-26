@@ -195,6 +195,27 @@ def coerce_edit_open_to_update(signal: dict | None, is_edit: bool) -> dict | Non
     return signal
 
 
+# Un EDIT di un messaggio più vecchio di così non è una correzione del setup
+# corrente (il 04/09 un post del marzo 2024 "Gold buy 2170-2167" è stato
+# modificato e riemesso come OPEN, contaminando anche il rientro successivo).
+STALE_EDIT_MAX_AGE_SEC = 6 * 3600
+
+
+def is_stale_edit(
+    is_edit: bool,
+    msg_date: datetime | None,
+    now: datetime | None = None,
+    max_age_sec: float = STALE_EDIT_MAX_AGE_SEC,
+) -> bool:
+    """True se l'EDIT riguarda un messaggio pubblicato oltre ``max_age_sec`` fa."""
+    if not is_edit or msg_date is None:
+        return False
+    if msg_date.tzinfo is None:
+        msg_date = msg_date.replace(tzinfo=timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    return (now - msg_date).total_seconds() > max_age_sec
+
+
 def pf(s: str | None) -> float | None:
     """Parse float; return None on empty/invalid tokens (never raise)."""
     if s is None:
@@ -3055,6 +3076,30 @@ async def run_bridge():
             prefix = "EDIT" if is_edit else "MSG"
             log.info(f"[{ch_cfg['id']}] {prefix}: {text[:80].replace(chr(10), ' | ')}")
 
+            msg_date = getattr(event, "date", None)
+            stale_max_age = float(
+                CONFIG.get("stale_edit_max_age_sec", STALE_EDIT_MAX_AGE_SEC)
+            )
+            if is_stale_edit(is_edit, msg_date, max_age_sec=stale_max_age):
+                log.warning(
+                    f"[{ch_cfg['id']}] EDIT di messaggio vecchio "
+                    f"(id={message_id} del {msg_date:%Y-%m-%d}): ignorato"
+                )
+                processed_messages.mark_processed(dedup_key)
+                append_bridge_event(CONFIG, {
+                    "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "channel_id": ch_cfg["id"],
+                    "chat_id": int(chat_id),
+                    "message_id": int(message_id),
+                    "event_type": event_type,
+                    "raw_text": text,
+                    "outcome": "IGNORED_STALE_EDIT",
+                    "telegram_date": msg_date.astimezone(timezone.utc).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                })
+                return
+
             # Per i messaggi modificati di CH2: se il testo contiene ora
             # sia la direzione che i dati completi (SL/TP), va trattato come
             # UPDATE_OPEN — forziamo il pending state se non era già impostato
@@ -3100,7 +3145,6 @@ async def run_bridge():
             signal = coerce_edit_open_to_update(signal, is_edit)
 
             if signal:
-                msg_date = getattr(event, "date", None)
                 telegram_date = (
                     msg_date.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                     if msg_date
