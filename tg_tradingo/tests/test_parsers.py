@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,7 @@ from tradingo_bridge import (
     parser_ivan_vip,
     parser_zanni_vip,
     coerce_edit_open_to_update,
+    is_stale_edit,
     pf,
 )
 
@@ -880,6 +882,30 @@ class TestValidation:
         ok, reason = validate_signal(sig)
         assert not ok
         assert "splits" in reason
+
+
+class TestStaleEdit:
+    """04/09: EDIT di un post del marzo 2024 riemesso come OPEN (2167-2170 con oro a 4435)."""
+
+    NOW = datetime(2026, 9, 4, 15, 7, 6, tzinfo=timezone.utc)
+
+    def test_old_message_edit_is_stale(self):
+        old = datetime(2024, 3, 25, 11, 44, 58, tzinfo=timezone.utc)
+        assert is_stale_edit(True, old, now=self.NOW)
+
+    def test_recent_edit_is_not_stale(self):
+        recent = self.NOW - timedelta(minutes=22)
+        assert not is_stale_edit(True, recent, now=self.NOW)
+
+    def test_new_message_or_missing_date_never_stale(self):
+        old = datetime(2024, 3, 25, tzinfo=timezone.utc)
+        assert not is_stale_edit(False, old, now=self.NOW)
+        assert not is_stale_edit(True, None, now=self.NOW)
+
+    def test_naive_date_and_custom_threshold(self):
+        d = datetime(2026, 9, 4, 8, 0, 0)  # noqa: DTZ001 - Telethon può dare date naive
+        assert is_stale_edit(True, d, now=self.NOW, max_age_sec=3600)
+        assert not is_stale_edit(True, d, now=self.NOW, max_age_sec=12 * 3600)
 
 
 class TestEditOpenCoerce:
