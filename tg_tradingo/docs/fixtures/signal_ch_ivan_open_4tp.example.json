@@ -1,0 +1,19 @@
+{
+  "action": "OPEN",
+  "direction": "SELL",
+  "symbol": "XAUUSD",
+  "entry": 4059.0,
+  "entry_range": null,
+  "tp_levels": [4055.0, 4052.0, 4045.0, 4020.0],
+  "sl": 4071.0,
+  "magic_base": 17000,
+  "timestamp": "2026-08-03T12:06:41Z",
+  "channel_id": "CH_IVAN",
+  "channel_name": "IvanTrades - VIP",
+  "event_type": "NEW",
+  "signal_id": "00ff1ab5dd",
+  "use_fixed_lot": true,
+  "trades": 4,
+  "fixed_lot": 0.1,
+  "splits": [0.25, 0.25, 0.25, 0.25]
+}
