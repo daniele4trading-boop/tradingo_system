@@ -171,6 +171,7 @@ def compute_features(prev: Bar, cur: Bar, risk: float, spread: float) -> SignalF
         body2_frac=body2_frac,
         range2_over_range1=range2_over_range1,
         risk_spread_mult=risk_spread_mult,
+        stop_distance=risk,
     )
 
 
@@ -182,9 +183,12 @@ class EntryFilters:
     risk_spread_mult_min: float | None = None
     range2_over_range1_min: float | None = None
     range2_over_range1_max: float | None = None
+    min_stop_distance: float | None = None
 
     def rejections(self, f: SignalFeatures) -> list[str]:
         out: list[str] = []
+        if self.min_stop_distance is not None and f.stop_distance < self.min_stop_distance:
+            out.append("min_stop_distance")
         if self.body2_frac_min is not None and f.body2_frac < self.body2_frac_min:
             out.append("body2_frac")
         if (

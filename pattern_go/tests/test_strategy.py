@@ -115,6 +115,21 @@ def test_m15_filter_only_checks_risk_spread_mult():
     assert m15.passes(compute_features(prev, cur, risk=7.13, spread=0.5))
 
 
+def test_min_stop_distance_rejects_tight_stops():
+    prev = bar(0, 4000, 4004, 3999, 4003)
+    cur = bar(1, 4003, 4004, 3994, 3995)
+    filters = EntryFilters(min_stop_distance=8.0)
+    tight = compute_features(prev, cur, risk=5.12, spread=0.2)
+    assert filters.rejections(tight) == ["min_stop_distance"]
+    assert filters.passes(compute_features(prev, cur, risk=8.0, spread=0.2))
+
+
+def test_min_stop_distance_is_off_by_default():
+    prev = bar(0, 4000, 4004, 3999, 4003)
+    cur = bar(1, 4003, 4004, 3994, 3995)
+    assert EntryFilters().passes(compute_features(prev, cur, risk=0.5, spread=0.2))
+
+
 def test_take_profit_uses_swing_when_far_enough():
     swing = Swing(index=5, type=SwingType.LOW, price=3990.0, time=T0)
     price, source = take_profit(entry=4000.0, risk=4.0, bias=Side.SHORT, swing=swing)

@@ -74,6 +74,7 @@ class SignalFeatures:
     body2_frac: float
     range2_over_range1: float
     risk_spread_mult: float
+    stop_distance: float = 0.0
 
     def as_dict(self) -> dict[str, float]:
         return {
@@ -84,6 +85,7 @@ class SignalFeatures:
             "body2_frac": self.body2_frac,
             "range2_over_range1": self.range2_over_range1,
             "risk_spread_mult": self.risk_spread_mult,
+            "stop_distance": self.stop_distance,
         }
 
 
