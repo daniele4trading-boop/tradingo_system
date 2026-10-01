@@ -44,6 +44,7 @@ from bridge_core import (
     validate_signal,
 )
 from bridge_journal import append_bridge_event, write_heartbeat
+from bridge_logging import _DateRotatingFileHandler, _SafeStreamHandler
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -76,15 +77,14 @@ JOURNAL_RETENTION_DAYS = 90
 
 LOG_DIR  = Path(CONFIG["paths"]["logs"])
 LOG_DIR.mkdir(parents=True, exist_ok=True)
-log_file = LOG_DIR / f"tradingo_{datetime.now().strftime('%Y%m%d')}.log"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(log_file, encoding="utf-8"),
-        logging.StreamHandler(sys.stdout)
-    ]
+        _DateRotatingFileHandler(LOG_DIR, encoding="utf-8"),
+        _SafeStreamHandler(sys.stdout),
+    ],
 )
 log = logging.getLogger("TradinGo")
 
