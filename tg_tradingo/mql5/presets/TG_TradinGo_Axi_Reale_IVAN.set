@@ -1,15 +1,15 @@
 ; TG_TradinGoEA — preset conto REALE Axi (60341652, Axi-US51-Live, Gamehosting): solo canale IVAN
-; Lotti fissi 0.05 per posizione (setup IVAN = 4 TP -> 0.20 lotti totali): adeguare al saldo del conto.
+; Lotti fissi 0.01 per posizione (setup IVAN = 4 TP -> 0.04 lotti totali).
 ; Nessun guard DD/killswitch (scelta dell'utente: conto a rischio accettato).
-; Suffisso simbolo del broker: "(nessuno)".
+; Suffisso simbolo del broker: ".pa" (XAUUSD.pa).
 ; Tolleranza off-market 200 pt, guard % solo su entry+SL (EA >= 2.29), BE all'entry del segnale.
 InpSignalsPath=
 InpUseAbsolutePath=false
 InpChannels=ivan
-InpSymbolSuffix=
+InpSymbolSuffix=.pa
 InpLotMultiplier=1.0
 InpAddLotFactor=0.5
-InpLotIvan=0.05
+InpLotIvan=0.01
 InpLotStark=0.0
 InpLotGold=0.0
 InpLotOro=0.0
