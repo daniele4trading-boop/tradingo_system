@@ -17,12 +17,21 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
 | Bridge Python | **2.29** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.29** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| EA MT5 | **2.30** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**MT5 2.30 (bridge 2.29 invariato):** regole prop Agorà. (1) Guard DD giornaliero
+`InpDdDailyPct`: riferimento = max(saldo, equity) al reset delle `InpDdDailyResetHourNY`
+(17:00 New York, ora legale USA gestita), salvato in GlobalVariable `TG_TRADINGO_DDD_*` così
+sopravvive ai riavvii nello stesso giorno. Sotto `InpDdDailyBlockNewAtPct` % del limite blocca
+i nuovi ingressi, sotto `InpDdDailyCloseAtPct` % chiude tutte le posizioni TG
+(`KILLSWITCH_DAILY_DD`) e blocca fino al reset successivo (non serve reset manuale).
+(2) `InpDdTrailEod`: a ogni reset il riferimento del DD massimo sale al max(saldo, equity) se
+più alto (floor trailing di fine giornata). Con 0 / false tutto come 2.29.
 
 **2.29 / MT5 2.29 / MT4 1.15:** casi IVAN del 02/10. (1) EA: il guard off-market
 (`InpMaxLevelDeviationPct` / `max_level_deviation_pct`) controlla solo entry e SL, non più
@@ -211,6 +220,7 @@ Tutti in `tg_tradingo/mql5/presets/`, si caricano da `Inputs → Load` sul chart
 |---|---|---|---|---|---|
 | `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Contabo) | off | off | tutti e 5 | conto "misura i canali": nessun guard altera i risultati |
 | `TG_TradinGo_Ultima_iFunds_Demo.set` | Ultima demo (Gamehosting) | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | prova delle regole iFunds; `InpMagicOffset=0` per non perdere le posizioni già aperte |
+| `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 2%, chiusura 3%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.01 | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
 | `TG_TradinGo_iFunds_10k_dd6.set` | iFunds 10k reale | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | `InpMagicOffset=500000` |
 | `TG_TradinGo_iFunds_50k_dd6.set` | iFunds 50k reale | 6%, start 50.000 → floor 47.000 | on, cap 0,25 | ivan, stark | scalata dopo il 10k |
 | `TG_TradinGo_Reale_Personale.set` | conti reali personali | 10%, equity catturata al primo attach | off | ivan, stark (da scegliere) | template: lotti, suffisso simbolo e % vanno adattati al broker |
