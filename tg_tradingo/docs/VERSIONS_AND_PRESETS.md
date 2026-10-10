@@ -52,6 +52,13 @@ canale ("Mettiamo BE x free risk", "Spostiamo stop a BE", "Portiamo lo stop a BE
 e gli annunci per dopo ("Come tocca TP 1 mettiamo stop a BE", "quando/appena") non
 emettono `CHECK_AND_BE`. Il 17/09 "Mettiamo BE x free risk" non era stato riconosciuto.
 
+**2.31 / MT5 2.31:** canali `CH_HYBRIDGOLD` (Hybrid | Setup Gold, magic 15000,
+`signal_ch_hybridgold.json`, tag `HG`) e `CH_HYBRIDFX` (Hybrid | Setup Forex, magic 16000,
+`signal_ch_hybridfx.json`, tag `HF`), parser `hybrid`. Input `InpLotHybridGold`/`InpLotHybridFx`,
+`InpDdFloatHybridGold`/`InpDdFloatHybridFx`. La gestione (anticipo TP, SL spostato, stop preso,
+chiusura) arriva come reply al segnale: il bridge passa `reply_to_msg_id` al parser. Le analisi dei
+canali non generano segnali. Solo Vantage: `InpChannels=gold,forex,stark,ivan,ivanbtc,hybridgold,hybridfx`.
+
 **2.27 / MT5 2.27:** canale `CH_IVANBTC` (IvanTrades - BTC, magic 18000,
 `signal_ch_ivanbtc.json`, parser `ivan_btc`). Opera SOLO su BTCUSD/XAGUSD con stato per
 simbolo (`ivan_btc_trades`), separato da quello del VIP oro: i setup BTC ripubblicati nel

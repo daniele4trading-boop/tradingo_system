@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.30"
+#property version   "2.31"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.30"
+#define EA_VERSION "2.31"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -33,12 +33,16 @@ input double InpLotStark           = 0.0;
 input double InpLotGold            = 0.0;
 input double InpLotOro             = 0.0;
 input double InpLotForex           = 0.0;
+input double InpLotHybridGold      = 0.0;   // v2.31 CH_HYBRIDGOLD (Hybrid | Setup Gold)
+input double InpLotHybridFx        = 0.0;   // v2.31 CH_HYBRIDFX (Hybrid | Setup Forex)
 // Short comment tags (empty = default CHANNEL name). Moneta: IT / AS
 input string InpTagIvan            = "IT";
 input string InpTagStark           = "AS";
 input string InpTagGold            = "";
 input string InpTagOro             = "";
 input string InpTagForex           = "";
+input string InpTagHybridGold      = "HG";
+input string InpTagHybridFx        = "HF";
 input bool   InpCommentUseTgPrefix = false; // false -> IT-T1 ; true -> TG-IT-T1
 input int    InpMaxSlippagePoints  = 50;
 input int    InpPollMs             = 500;
@@ -130,6 +134,8 @@ input double InpDdFloatStark         = 10.4;
 input double InpDdFloatGold          = 15.0;
 input double InpDdFloatOro           = 12.4;
 input double InpDdFloatForex         = 20.0;
+input double InpDdFloatHybridGold    = 15.0;
+input double InpDdFloatHybridFx      = 20.0;
 // Concurrent exposure cap across all TG positions. 0 = off.
 input double InpMaxConcurrentLots    = 0.0;
 // v2.30 daily drawdown guard (prop rules, e.g. Agora 4%). Reference = max(balance,
@@ -827,6 +833,10 @@ string ChannelShortTag(const string channelFile, const string json)
       return InpTagOro;
    if(key == "forex" && InpTagForex != "")
       return InpTagForex;
+   if(key == "hybridgold" && InpTagHybridGold != "")
+      return InpTagHybridGold;
+   if(key == "hybridfx" && InpTagHybridFx != "")
+      return InpTagHybridFx;
 
    string cid = JsonGetString(json, "channel_id");
    if(cid != "")
@@ -855,6 +865,10 @@ double LotOverrideForChannel(const string channelFile, const string json)
       return InpLotOro;
    if(key == "forex")
       return InpLotForex;
+   if(key == "hybridgold")
+      return InpLotHybridGold;
+   if(key == "hybridfx")
+      return InpLotHybridFx;
    return 0.0;
   }
 
@@ -2235,6 +2249,10 @@ bool IsTGPositionSelected()
       return true;
    if(CommentStartsWithTag(c, InpTagForex))
       return true;
+   if(CommentStartsWithTag(c, InpTagHybridGold))
+      return true;
+   if(CommentStartsWithTag(c, InpTagHybridFx))
+      return true;
    return false;
   }
 
@@ -2741,6 +2759,10 @@ double DdFloatPer001(const string channelKey)
       return InpDdFloatOro;
    if(channelKey == "forex")
       return InpDdFloatForex;
+   if(channelKey == "hybridgold")
+      return InpDdFloatHybridGold;
+   if(channelKey == "hybridfx")
+      return InpDdFloatHybridFx;
    return 0.0;
   }
 

@@ -1,0 +1,908 @@
+# Hybrid | Setup Gold / Setup Forex - campioni reali (letti il 10/10/2026, sola lettura)
+# Formato: [canale] id data (reply_to) | testo. Le risposte brevi (gestione) seguono il segnale a cui rispondono.
+
+======== HYBRID_GOLD (283 segnali dal 2025-04-29) ========
+[HYBRID_GOLD] 6977 2026-10-08T14:06 | ▲ Buy xauusd.pro 4124
+    
+    Sl: 4119 (50 pips)
+    
+    Tp1: 4129
+    Tp2: 4134
+    Tp3: open
+  -> reply 6978 2026-10-08T14:07 | Attenzione alla volatilità
+  -> reply 6979 2026-10-08T14:13 | Noi anticipiamo il tp 1 qui 🔥🫶🏻
+  -> reply 6981 2026-10-08T14:18 | Tp 1 effettivo preso 🔥
+  -> reply 6982 2026-10-08T14:21 | Tp 2 preso 🔥🔥
+
+[HYBRID_GOLD] 6971 2026-10-07T09:14 | ▲ Buy xauusd.pro 4122
+    Sl: 4112 (100 pips)
+    Tp1: 4132 Tp2: 4142 Tp3: open
+  -> reply 6973 2026-10-07T10:31 | Stop loss preso
+
+[HYBRID_GOLD] 6965 2026-10-06T15:51 | Low Risk
+    
+    ▼ Sell xauusd.pro 4170
+    
+    Sl: 4178 (80 pips)
+    
+    Tp1: 4160
+    Tp2: 4150
+    Tp3: open
+  -> reply 6966 2026-10-06T15:56 | Noi anticipiamo Tp 1 qui 🔥🫶🏻
+  -> reply 6967 2026-10-06T16:15 | Abbiamo raggiunto 1:1 🔥
+  -> reply 6968 2026-10-06T16:33 | Tp1 effettivo preso 🔥
+  -> reply 6969 2026-10-06T16:57 | Running 1:2 🔥🫶🏻
+
+[HYBRID_GOLD] 6952 2026-10-05T13:44 | ▲ Buy xauusd.pro 4138
+    
+    Sl: 4128 (100 pips)
+    
+    Tp1: 4148 — possibile anticipo area 4145
+    Tp2: 4158
+    Tp3: open
+  -> reply 6953 2026-10-05T13:51 | Noi anticipiamo il tp 1 qui 🔥
+  -> reply 6956 2026-10-05T14:06 | Per coloro che hanno seguito il TP1 anticipato già indicato nel setup, TP1 preso🔥
+
+[HYBRID_GOLD] 6935 2026-10-01T13:22 | ▼ Sell xauusd.pro 4175
+    
+    Sl: 4185 (100 pips)
+    
+    Tp1: 4165
+    Tp2: 4155
+    Tp3: open
+  -> reply 6936 2026-10-01T13:23 | Noi siamo attivi a 4174
+  -> reply 6937 2026-10-01T13:30 | Noi anticipiamo il tp 1 qui 1:0,6 🔥
+  -> reply 6941 2026-10-01T14:02 | Tp2 preso 🔥🔥
+
+[HYBRID_GOLD] 6923 2026-10-01T07:29 | Low risk 
+    
+    ▲ Buy xauusd.pro 4156
+    
+    Sl: 4146 (100 pips)
+    
+    Tp1: 4166
+    Tp2: 4176
+    Tp3: open
+  -> reply 6925 2026-10-01T07:33 | Noi anticipiamo il tp 1 qui 🔥1:0,8
+  -> reply 6928 2026-10-01T07:47 | Tp1 effettivo preso🔥
+  -> reply 6929 2026-10-01T10:51 | Tp2 preso 🔥🫶🏼
+  -> reply 6931 2026-10-01T12:43 | Noi chiudiamo qui a Tp3 🔥 RR 1:3 🔥
+
+[HYBRID_GOLD] 6918 2026-09-30T07:00 | ▼ Sell xauusd.pro 4190
+    
+    Sl: 4200 (100 pips)
+    
+    Tp1: 4180
+    Tp2: 4170
+    Tp3: open
+  -> reply 6919 2026-09-30T07:23 | Stop loss preso
+
+[HYBRID_GOLD] 6910 2026-09-29T13:24 | Low risk
+    
+    ▲ buy  xauusd.pro 4158
+    
+    Sl: 4148 (100 pips)
+    
+    Tp1: 4168
+    Tp2: 4178
+    Tp3: open
+  -> reply 6911 2026-09-29T14:01 | Noi anticipiamo il tp1 qui 🔥
+  -> reply 6912 2026-09-29T14:06 | Tp 1 effettivo preso 🔥
+
+[HYBRID_GOLD] 6905 2026-09-29T05:43 | ▼ Sell xauusd.pro 4134
+    
+    Sl: 4144 (100 pips)
+    
+    Tp1: 4124
+    Tp2: 4114
+    Tp3: open
+  -> reply 6907 2026-09-29T05:51 | Per chiunque voglia rimanere dentro, preferiremmo abbassare il rischio e mantenere un’esposizione più contenuta.
+
+[HYBRID_GOLD] 6895 2026-09-28T16:29 | ▼ Sell xauusd.pro 4147
+    
+    Sl: 4157 (100 pips)
+    
+    Tp1: 4137
+    Tp2: 4127
+    Tp3: open
+  -> reply 6897 2026-09-28T16:31 | Noi anticipiamo il tp 1 qui 1:0,7🔥
+  -> reply 6898 2026-09-28T16:33 | Tp1 effettivo preso 🔥
+  -> reply 6900 2026-09-28T17:06 | Tp2 preso 🔥🔥🔥
+  -> reply 6901 2026-09-28T19:41 | 🌙 Gestione overnight / Noi Holdiamo lo SHORT overnight con lo STOP a BE.
+
+[HYBRID_GOLD] 6890 2026-09-28T15:39 | Low risk
+    ▲ Buy xauusd.pro 4121
+    
+    Sl: 4110 (110 pips)
+    
+    Tp1: 4130
+    Tp2: 4140
+    Tp3: open
+  -> reply 6891 2026-09-28T15:40 | Low risk
+  -> reply 6893 2026-09-28T16:21 | Tp1 preso 🔥
+  -> reply 6894 2026-09-28T16:26 | Tp2 preso 🔥
+  -> reply 6896 2026-09-28T16:30 | Noi chiudiamo qui a Tp 3 🔥1:2,4
+
+[HYBRID_GOLD] 6867 2026-09-25T11:08 | ▼ Sell xauusd.pro 4315
+    
+    Sl: 4325 (100 pips)
+    
+    Tp1: 4305
+    Tp2: 4295
+    Tp3: open
+  -> reply 6868 2026-09-25T11:09 | Attivo
+  -> reply 6869 2026-09-25T11:10 | Siamo dentro a 4314,57
+  -> reply 6872 2026-09-25T11:23 | Noi anticipiamo il tp1 qui 🫶🏻🔥
+  -> reply 6873 2026-09-25T11:29 | Tp 1 effettivo preso 🔥🔥
+  -> reply 6877 2026-09-25T13:01 | Tp 2 preso 🔥🔥
+  -> reply 6878 2026-09-25T13:27 | Noi chiudiamo qui a Tp 3  1:3,3🔥
+
+[HYBRID_GOLD] 6860 2026-09-23T14:32 | Low Risk
+    
+    ▲ Buy xauusd.pro 4282
+    
+    Sl: 4272 (100 pips)
+    
+    Tp1: 4292
+    Tp2: 4302
+    Tp3: open
+    
+    Risk: 0,5
+  -> reply 6861 2026-09-23T14:36 | Noi anticipiamo il tp 1 qui 🔥
+  -> reply 6862 2026-09-23T14:39 | Tp 1 effettivo preso 🔥
+  -> reply 6863 2026-09-24T06:02 | Tp2 preso 🔥
+
+[HYBRID_GOLD] 6846 2026-09-22T17:35 | Low Risk
+    
+    ▲ Buy xauusd.pro 4335
+    
+    Sl: 4325 (100 pips)
+    
+    Tp1: 4345
+    Tp2: 4355
+    Tp3: 4365
+  -> reply 6848 2026-09-22T17:50 | Noi anticipiamo il TP 1 qui 🔥🔥
+  -> reply 6849 2026-09-22T17:53 | Tp 1 effettivo preso 🔥🔥
+  -> reply 6855 2026-09-22T18:06 | Tp 2 preso 🔥
+  -> reply 6856 2026-09-22T18:20 | Noi chiudiamo qui a tp 3 qui 1:2,5🔥🤝
+
+[HYBRID_GOLD] 6838 2026-09-22T14:42 | ▲ Buy xauusd.pro 4316
+    
+    Sl: 4307 (90pips)
+    
+    Tp1: 4326
+    Tp2: 4334
+    Tp3: open
+  -> reply 6839 2026-09-22T14:43 | Low risk
+  -> reply 6842 2026-09-22T14:55 | Tp 1 effettivo preso 🔥
+  -> reply 6845 2026-09-22T15:08 | Tp 2 preso 🔥
+  -> reply 6852 2026-09-22T17:55 | Noi chiudiamo qui a Tp 3 1:4 🔥🔥
+
+[HYBRID_GOLD] 6829 2026-09-22T05:36 | ▲ Buy xauusd.pro 4318
+    
+    Sl: 4307 (110 pips)
+    
+    Tp1: 4329
+    Tp2: 4340
+    Tp3: open
+  -> reply 6830 2026-09-22T05:41 | Noi anticipiamo il tp 1 qui 🔥
+  -> reply 6832 2026-09-22T05:48 | Tp1 effettivo preso
+
+[HYBRID_GOLD] 6814 2026-09-17T15:15 | ▼ Sell xauusd.pro 4362.37
+    
+    Sl: 4372 (100 pips)
+    
+    Tp1: 4352
+    Tp2: 4342
+    Tp3: open
+  -> reply 6817 2026-09-17T16:01 | Stop loss preso
+
+[HYBRID_GOLD] 6807 2026-09-15T15:53 | Low risk
+    
+    ▼ Sell xauusd.pro 4291
+    
+    Sl: 4301 (100 pips)
+    
+    Tp1: 4281
+    Tp2: 4271
+    Tp3: open
+  -> reply 6808 2026-09-15T16:05 | Noi chiudiamo a Break even(punto d’entrata)🤝
+
+[HYBRID_GOLD] 6799 2026-09-15T07:54 | ▲ Buy xauusd.pro 4276.3
+    
+    Sl: 4271 (50 pips)
+    
+    Tp1: 4281
+    Tp2: 4286
+    Tp3: open
+    
+    
+    Low risk
+  -> reply 6800 2026-09-15T07:59 | Noi anticipiamo il tp1 qui 🔥
+
+[HYBRID_GOLD] 6786 2026-09-14T13:34 | ▲ Buy xauusd.pro 4274
+    
+    Sl: 4264 (100 pips)
+    
+    Tp1: 4280
+    Tp2: 4285
+    Tp3: open
+  -> reply 6787 2026-09-14T13:48 | Tp1 preso 🔥
+  -> reply 6789 2026-09-14T15:23 | Tp2 preso 🔥
+  -> reply 6792 2026-09-14T16:26 | Noi chiudiamo qui a Tp 3 1:3🔥
+
+[HYBRID_GOLD] 6775 2026-09-11T13:29 | ▼ Sell xauusd.pro 4398
+    
+    Sl: 4410 (120 pips)
+    
+    Tp1: 4386
+    Tp2: 4374
+    Tp3: open
+    
+    Attenzione alla volatilità.
+  -> reply 6776 2026-09-11T13:30 | Anticipiamo il tp 1 qui 🔥
+  -> reply 6777 2026-09-11T13:32 | Tp1 effettivo 🔥
+  -> reply 6781 2026-09-11T14:31 | Tp 2 preso 🔥
+  -> reply 6782 2026-09-11T15:14 | Noi chiudiamo qui a tp3 1:3,22🔥
+
+[HYBRID_GOLD] 6769 2026-09-10T10:13 | ▲ Buy xauusd.pro 4393
+    
+    Sl: 4383 (100 pips)
+    
+    Tp1: 4403
+    Tp2: 4413
+    Tp3: open
+    
+    Attenzione alla volatilità
+  -> reply 6770 2026-09-10T10:19 | Noi anticipiamo il tp 1 qui 🔥
+
+[HYBRID_GOLD] 6764 2026-09-09T06:00 | Low Risk
+    
+    ▼ Sell xauusd.pro 4400
+    
+    Sl: 4405 (50 pips)
+    
+    Tp1: 4395
+    Tp2: 4390
+    Tp3: open
+  -> reply 6765 2026-09-09T06:06 | Stop loss preso
+
+[HYBRID_GOLD] 6758 2026-09-08T13:36 | Low Risk
+    
+    ▲ Buy xauusd.pro 4396
+    
+    Sl: 4385 (110 pips)
+    
+    Tp1: 4407
+    Tp2: 4418
+    Tp3: open
+  -> reply 6760 2026-09-08T13:48 | Noi anticipiamo il tp 1 qui 🔥
+  -> reply 6761 2026-09-08T13:56 | Tp1 effettivo 🔥
+
+[HYBRID_GOLD] 6753 2026-09-08T06:07 | Low Risk
+    
+    ▲ Buy xauusd.pro 4414
+    
+    Sl: 4405 (90 pips)
+    
+    Tp1: 4423
+    Tp2:4432
+    Tp3:open
+  -> reply 6754 2026-09-08T06:19 | Stop loss preso
+
+[HYBRID_GOLD] 6446 2026-07-01T14:21 | ▼ Sell xauusd.pro 4100
+    
+    Sl: 4110 (100 pips)
+    Risk 0.01 lot ≈ 10$
+    
+    Tp1: 4090
+    Tp2: 4080
+    Tp3: open
+  -> reply 6447 2026-07-01T14:27 | Noi anticipiamo il tp 1 qui 🔥
+
+[HYBRID_GOLD] 6441 2026-07-01T11:13 | ▼ Sell xauusd.pro 4013
+    
+    Sl: 4023 (100 pips)
+    Risk 0.01 lot ≈ 10$
+    
+    Tp1: 4003
+    Tp2: 3993
+    Tp3: open
+  -> reply 6442 2026-07-01T11:14 | Al momento il prezzo continua a mostrare una forte pressione rialzista. Essendo un’operazione contro trend, molto probabilmente anticiperemo il TP1.
+
+[HYBRID_GOLD] 6433 2026-06-30T06:30 | Low Risk
+    
+    ▼ Sell xauusd.pro 4012
+    
+    Sl: 4022 (100 pips)
+    Risk 0.01 lot ≈ 10$
+    
+    Tp1: 4002
+    Tp2: 3992
+    Tp3: open
+  -> reply 6434 2026-06-30T06:32 | Stop loss preso
+
+[HYBRID_GOLD] 6427 2026-06-29T14:14 | Low Risk
+    
+    ▲ Buy xauusd.pro 4014
+    
+    Sl: 4004 (100 pips)
+    Risk 0.01 lot ≈ 10$
+    
+    Tp1: 4024
+    Tp2: 4034
+    Tp3: open
+  -> reply 6428 2026-06-29T14:15 | Per chi ha margine
+  -> reply 6429 2026-06-29T14:16 | Stop loss preso
+
+[HYBRID_GOLD] 6421 2026-06-29T13:42 | Low Risk
+    
+    ▼ Sell xauusd.pro 4040
+    
+    Sl: 4050 (100 pips)
+    Risk 0.01 lot ≈ 10$
+    
+    Tp1: 4035
+    Tp2: 4020
+    Tp3: open
+  -> reply 6422 2026-06-29T13:46 | Noi anticipiamo il tp1 🔥
+  -> reply 6423 2026-06-29T13:48 | Tp 1 effettivo preso 🔥
+  -> reply 6424 2026-06-29T13:56 | Siamo running 1:1🏃‍♂️ 🔥
+  -> reply 6425 2026-06-29T14:06 | Tp2 preso 🔥 1:2
+  -> reply 6426 2026-06-29T14:12 | Noi chiudiamo qui a tp3 1:3 🔥
+
+[HYBRID_GOLD] 6409 2026-06-24T13:00 | Low Risk
+    
+    ▲ Buy xauusd.pro 3990
+    
+    Sl: 3980 (100 pips)
+    Risk 0.01 lot ≈ 10$
+    
+    Tp1: 4000
+    Tp2: 4010
+    Tp3: open
+  -> reply 6410 2026-06-24T13:00 | Facciamo attenzione volatilità
+  -> reply 6411 2026-06-24T13:01 | Stop loss preso
+
+[HYBRID_GOLD] 6404 2026-06-24T11:19 | ▲ Buy xauusd.pro 4040
+    
+    Sl: 4030 (100 pips)
+    Risk 0.01 lot ≈ 10$
+    
+    Tp1: 4050
+    Tp2: 4060
+    Tp3: open
+  -> reply 6405 2026-06-24T11:22 | Noi anticipiamo il tp 1 qui 🔥
+  -> reply 6408 2026-06-24T11:38 | Tp 1 effettivo preso 🔥
+
+[HYBRID_GOLD] 6397 2026-06-22T14:28 | Buy xauusd.pro 4194
+    
+    Sl: 4189 (50 pips)
+    Risk 0.01 lot ≈ 5$
+    
+    Tp1: 4199
+    Tp2: 4204
+    Tp3: open
+  -> reply 6398 2026-06-22T14:32 | Stop loss preso
+
+[HYBRID_GOLD] 6392 2026-06-22T13:30 | Buy xauusd.pro 4186
+    
+    Sl: 4176 (100 pips)
+    Risk 0.01 lot ≈ 10$
+    
+    Tp1: 4196
+    Tp2: 4206
+    Tp3: open
+  -> reply 6393 2026-06-22T13:36 | Noi anticipiamo il tp1 qui 🔥
+  -> reply 6394 2026-06-22T13:47 | Tp 1 effettivo preso 🔥
+  -> reply 6395 2026-06-22T14:08 | Tp 2 preso 🔥
+
+[HYBRID_GOLD] 6384 2026-06-19T06:05 | Buy xauusd.pro 4136
+    
+    Sl: 4126 (100 pips)
+    Risk 0.01 lot ≈ 10$
+    
+    Tp1: 4146
+    Tp2: 4156
+    Tp3: open
+  -> reply 6385 2026-06-19T06:13 | Tp 1 preso 🔥🔥
+  -> reply 6386 2026-06-19T07:05 | Tp 2 preso 🔥🔥
+  -> reply 6387 2026-06-19T08:26 | Noi chiudiamo qui a Tp 3 1:4🔥
+
+[HYBRID_GOLD] 5303 2025-08-12T20:01 | Buy LTCUSD 128
+    
+    Sl: 110 
+    Tp1: 138
+    Tp2: 148
+    Tp3: 228
+  -> reply 5304 2025-08-13T22:15 | Per chi non fosse entrato, l’entrata è ancora disponibile 🔥
+
+[HYBRID_GOLD] 5299 2025-08-11T15:02 | Buy XAUUSD 3347
+    
+    Tp1: 3357
+    Tp2: 3367
+    Tp3: 3400
+    Sl: 3337 -100 pips
+  -> reply 5301 2025-08-11T15:26 | Per chi non fosse entrato, l’entrata è ancora valida, ci troviamo praticamente sullo stesso livello
+  -> reply 5302 2025-08-11T17:41 | Tp1 preso 💰
+
+[HYBRID_GOLD] 5293 2025-08-08T16:37 | Buy XAUUSD 3399
+    Sl: 3389 -100pips
+  -> reply 5296 2025-08-08T16:38 | Tp1: 3409 / Tp2: 3419 / Tp3: 3429
+  -> reply 5297 2025-08-08T16:50 | Per chi non fosse arrivato in tempo si può  ancora entrare
+  -> reply 5298 2025-08-08T18:20 | Sl preso❌
+
+[HYBRID_GOLD] 5286 2025-08-07T08:18 | Buy XAUUSD 3380 area
+    Sl: 3370 -100pips
+    Tp1: 3390
+    Tp2: 3400
+    Tp3: 3425
+  -> reply 5289 2025-08-07T09:47 | Per chi non fosse entrato, c’è ancora la possibilità di entrare
+  -> reply 5290 2025-08-07T12:38 | Per chi punta al tp1 nn lo ha preso per 1 tick, Quidni si può anticipare la chiusura
+  -> reply 5292 2025-08-08T08:17 | Tp2 preso 🔥🔥🚀🚀
+
+[HYBRID_GOLD] 5278 2025-08-05T09:07 | Buy xauusd 3365
+    
+    Sl : 3350 -150 pips
+
+[HYBRID_GOLD] 5271 2025-07-30T16:22 | Buy Xauusd 3293
+    
+    Sl: 3283 -100 pips
+  -> reply 5274 2025-07-30T16:51 | Tp1: 3301 / Tp2: 3308.5 / Tp3: 3323
+
+[HYBRID_GOLD] 5260 2025-07-25T15:34 | Buy XAUUSD 3329
+    
+    Sl: 3321 -80 pips
+    
+    Tp1: 3337
+    Tp2: 3351
+    Tp3: Open
+
+[HYBRID_GOLD] 5243 2025-07-24T13:02 | Buy XAUUSD 3352.5
+    Sl: 3342 -95 pips 
+    
+    Tp1: 3356
+    Tp2: 3370
+    Tp3: Open
+  -> reply 5245 2025-07-24T13:08 | Tp1 preso
+
+[HYBRID_GOLD] 4971 2025-05-09T13:56 | BUY XAUUSD 3333
+    Sl: 3320 -130pips
+  -> reply 4974 2025-05-09T14:27 | siamo ancora dentro
+
+[HYBRID_GOLD] 4936 2025-04-29T13:47 | Buy XAUUSD: 3304
+    Sl: 3298 -60pips
+  -> reply 4938 2025-04-29T13:49 | ➕ TP1                     3310 / ➕ TP2                     3321 / ➕ TP3                     3351
+
+======== HYBRID_FOREX (214 segnali dal 2025-07-30) ========
+[HYBRID_FOREX] 3064 2026-10-07T10:47 | 🟢BUY CHFJPY 190.128
+    
+    TP1 190.760
+    TP2 191.420
+    TP3 open
+    
+    SL 189.500 (63 pips)
+  -> reply 3065 2026-10-09T07:44 | Stop loss preso
+
+[HYBRID_FOREX] 3060 2026-10-06T15:26 | 🟢BUY CHFJPY 190.300
+    
+    TP1 190.790
+    TP2 191.280
+    TP3 open
+    
+    SL 189.811 (49 pips)
+  -> reply 3063 2026-10-07T09:22 | Stoploss preso
+
+[HYBRID_FOREX] 3058 2026-10-06T11:39 | 🔴SELL USDCAD 1.42579
+    
+    TP1 1.42210
+    TP2 1.41850
+    TP3 open 
+    
+    SL 1.42951 (37 pips)
+  -> reply 3059 2026-10-06T15:22 | Noi anticipiamo qua il tp 1 a 0,94R 🔥
+  -> reply 3061 2026-10-06T15:42 | Tp 1 effettivo preso 🔥
+
+[HYBRID_FOREX] 3053 2026-10-02T13:02 | 🟢BUY NZDUSD 0.56285
+    
+    TP1 0.56716
+    TP2 0.57100
+    TP3 open
+    
+    SL 0.55850 (43 pips)
+  -> reply 3054 2026-10-05T14:09 | Stop loss preso
+
+[HYBRID_FOREX] 3047 2026-10-01T14:34 | ▲ Buy eurjpy.pro 177.615
+    
+    Sl: 177.207 (40.8 pips)
+    
+    Tp1: 178.000
+    Tp2: 178.400
+    Tp3: open
+    
+    Attenzione alla volatilità
+  -> reply 3048 2026-10-01T14:39 | Noi anticipiamo il tp1 qui 🔥
+
+[HYBRID_FOREX] 3045 2026-10-01T11:29 | 🟢BUY USDJPY 158.160
+    
+    TP1 159.000
+    TP2 open
+    TP3 open
+    
+    SL 157.300 (85 pips)
+  -> reply 3050 2026-10-01T14:40 | Stoploss preso
+
+[HYBRID_FOREX] 3043 2026-09-30T12:59 | 🔴SELL AUDCHF 0.58150
+    
+    TP1 0.57700
+    TP2 0.57300
+    TP3 open
+    
+    SL 0.58570 (44 pips)
+  -> reply 3049 2026-10-01T14:40 | Tp 1 preso 🔥
+  -> reply 3052 2026-10-02T12:08 | Tp 2 preso 🔥
+
+[HYBRID_FOREX] 3040 2026-09-24T11:49 | 🟢BUY GBPJPY 210.000
+    
+    TP1 211.276
+    TP2 212.500
+    TP3 open
+    
+    SL 208.732 (127 pips)
+  -> reply 3041 2026-09-25T11:07 | Stoploss preso
+
+[HYBRID_FOREX] 3036 2026-09-23T10:57 | 🔴SELL AUDCAD 0.99672
+    
+    TP1 0.99160
+    TP2 0.98680
+    TP3 open 
+    
+    SL 1.00149 (50 pips)
+  -> reply 3037 2026-09-23T15:32 | Noi anticipiamo il tp 1 a 0.90R 🔥
+  -> reply 3038 2026-09-23T16:05 | Tp 1 effettivo preso 🔥
+  -> reply 3044 2026-09-30T13:01 | Noi anticipiamo il tp 2 a 1.7R 🔥
+  -> reply 3046 2026-10-01T11:31 | Tp 2 effettivo preso 🔥
+  -> reply 3051 2026-10-01T15:34 | Noi chiudiamo ora la posizione a 2.3R 🔥
+
+[HYBRID_FOREX] 3029 2026-09-17T13:41 | 🟢BUY EURUSD 1.14890
+    
+    TP1 1.15300
+    TP2 1.15750
+    TP3 open
+    
+    SL 1.14520 (39 pips)
+  -> reply 3034 2026-09-22T12:38 | Stop loss preso
+
+[HYBRID_FOREX] 3028 2026-09-17T12:08 | 🔴SELL CHFJPY 188.950
+    
+    TP1 187.943
+    TP2 187.000
+    TP3 open
+    
+    SL 189.947 (100 pips)
+
+[HYBRID_FOREX] 3020 2026-09-16T11:42 | 🔴SELL USDJPY 155.015
+    
+    TP1 154.520
+    TP2 154.016
+    TP3 152.900
+    
+    SL 155.530 (51 pips)
+  -> reply 3025 2026-09-16T18:17 | Stoploss preso
+
+[HYBRID_FOREX] 3017 2026-09-16T07:27 | Low Risk
+    
+    ▲ Buy gbpjpy.pro 208.800
+    
+    Sl: 208.400 (40 pips)
+    
+    Tp1: 209.200
+    Tp2: 209.600
+    Tp3: open
+  -> reply 3022 2026-09-16T14:10 | Noi chiudiamo a Break even punto d’entrata 🤝
+
+[HYBRID_FOREX] 3016 2026-09-15T12:50 | 🟢BUY EURGBP 0.85620
+    
+    TP1 0.85720
+    TP2 0.85835
+    TP3 0.86100
+    
+    SL 0.85520 (11 pips)
+  -> reply 3019 2026-09-16T07:56 | Tp 1 preso 🔥
+  -> reply 3026 2026-09-17T11:05 | Tp 2 preso 🔥
+
+[HYBRID_FOREX] 3011 2026-09-10T11:41 | 🟢BUY USDCHF 0.81120
+    
+    TP1 0.81565
+    TP2 0.81960
+    TP3 open
+    
+    SL 0.80740 (40 pips)
+  -> reply 3012 2026-09-11T09:28 | Noi anticipiamo il Tp 1 a 0,95R 🔥
+  -> reply 3013 2026-09-11T11:11 | Tp 1 effettivo preso 🔥
+  -> reply 3015 2026-09-14T08:13 | Noi anticipiamo il tp 2 a 2R 🔥
+  -> reply 3023 2026-09-16T18:15 | Noi chiudiamo ora la posizione a +2,7R 🔥
+
+[HYBRID_FOREX] 3004 2026-09-08T12:07 | Low Risk
+    
+    ▲ Buy eurgbp.pro 0.85735
+    
+    Sl: 0.85450 (28.5 pips)
+    
+    Tp1: 0.85878
+    Tp2: 0.86020
+    Tp3: open
+    
+    Da aprire al minimo
+  -> reply 3005 2026-09-08T15:35 | Siamo a 2 pips dal Tp 1 🔥✅
+  -> reply 3006 2026-09-08T15:52 | Noi anticipiamo il tp1 a 0,6 pips dal target 🔥
+  -> reply 3008 2026-09-08T16:13 | Tp 1 effettivo preso
+
+[HYBRID_FOREX] 3003 2026-09-08T11:22 | 🟢BUY USDCHF 0.81150
+    
+    TP1 0.81565
+    TP2 0.81960
+    TP3 open
+    
+    SL 0.80740 (40 pips)
+  -> reply 3010 2026-09-10T08:58 | Stop loss preso
+
+[HYBRID_FOREX] 2997 2026-09-04T11:21 | 🟢BUY USDJPY 156.280
+    
+    TP1 157.320
+    TP2 158.320
+    TP3 open
+    
+    SL 155.260 (102 pips)
+  -> reply 2998 2026-09-07T08:31 | Sto loss preso
+
+[HYBRID_FOREX] 2992 2026-09-02T11:33 | 🔴SELL USDJPY 159.770
+    
+    TP1 159.087
+    TP2 158.440
+    TP3 open
+    
+    SL 160.426 (66 pips)
+  -> reply 2993 2026-09-02T14:13 | Tp 1 preso 🔥
+  -> reply 2994 2026-09-02T14:13 | Tp 2 preso 🔥
+  -> reply 2995 2026-09-03T08:48 | Noi chiudiamo ora la posizione a +4,72R 🔥
+
+[HYBRID_FOREX] 2987 2026-09-01T13:50 | 🟢BUY NZDJPY 94.500
+    
+    TP1 94.780
+    TP2 95.100
+    TP3 95.400
+    
+    SL 94.210 (28 pips)
+  -> reply 2990 2026-09-02T08:25 | Stoploss preso
+
+[HYBRID_FOREX] 2985 2026-09-01T11:28 | 🔴SELL AUDCHF 0.57850
+    
+    TP1 0.57600
+    TP2 0.57330
+    TP3 open
+    
+    SL 0.58100 (30 pips)
+  -> reply 2988 2026-09-01T15:43 | Stoploss preso
+
+[HYBRID_FOREX] 2979 2026-08-28T11:58 | 🔴SELL NZDUSD 0.59450
+    
+    TP1 0.59200
+    TP2 0.58940
+    TP3 open
+    
+    SL 0.59680 (25 pips)
+  -> reply 2980 2026-08-28T14:14 | Noi anticipiamo il tp 1 qui a +0,8R 🔥
+  -> reply 2981 2026-08-28T14:28 | Tp 1 effettivo preso 🔥
+  -> reply 2984 2026-09-01T09:01 | Tp 2 preso 🔥
+  -> reply 2991 2026-09-02T08:25 | Noi chiudiamo qui la posizione a +5R 🔥
+
+[HYBRID_FOREX] 2978 2026-08-27T09:55 | 🟢BUY EURNZD 1.96030
+    
+    TP1 1.96960
+    TP2 1.97850
+    TP3 open
+    
+    SL 1.95120 (91 pips)
+  -> reply 2986 2026-09-01T11:35 | Noi anticipiamo il tp 1 qui a +0,7R 🔥
+  -> reply 2989 2026-09-02T08:24 | Noi chiudiamo ora la posizione a +3R 🔥
+
+[HYBRID_FOREX] 2971 2026-08-20T08:36 | 🟢BUY USDJPY 158.480
+    
+    TP1 158.870
+    TP2 159.250 
+    TP3 open 
+    
+    SL 157.990 (44 pips)
+  -> reply 2972 2026-08-20T14:08 | Tp 1 preso 🔥
+  -> reply 2975 2026-08-24T09:27 | Tp 2 preso 🔥
+  -> reply 2977 2026-08-25T11:40 | Noi chiudiamo ora la posizione a +2R 🔥
+
+[HYBRID_FOREX] 2969 2026-08-19T16:12 | 🔴SELL GBPCAD 1.88000
+    
+    TP1 1.87420
+    TP2 1.86900
+    TP3 open
+    
+    SL 1.88556 (56 pips)
+  -> reply 2973 2026-08-21T13:24 | Noi anticipiamo il tp 1 🔥
+
+[HYBRID_FOREX] 2838 2026-05-28T17:12 | Low risk
+    
+    Sell cadjpy.pro 115.514
+    Sl: 115.800 -28.6 pips
+    Risk 0.01 lot ≈ 2.86$
+    
+    Tp1: 115.300
+    Tp2: 115.100
+    Tp3: 114.500
+  -> reply 2841 2026-05-29T09:22 | Noi anticipiamo il tp 1 qui 🔥
+  -> reply 2842 2026-05-29T15:19 | Tp 1 effettivo preso 🔥
+
+[HYBRID_FOREX] 2835 2026-05-28T12:36 | 🟢BUY EURCAD 1.61000
+    
+    TP1 1.61500
+    TP2 1.62000
+    TP3 open
+    
+    SL 1.60585 (47 pips)
+  -> reply 2839 2026-05-28T20:22 | Stoploss preso
+
+[HYBRID_FOREX] 2834 2026-05-28T12:10 | 🟢BUY EURGBP 0.86660
+    
+    TP1 0.87170
+    TP2 0.87670
+    TP3 0.88000
+    
+    SL 0.86150 (50 pips)
+
+[HYBRID_FOREX] 2831 2026-05-26T13:43 | 🔴SELL GBPCHF 1.05680
+    
+    TP1 1.05430
+    TP2 1.05140
+    TP3 open 
+    
+    SL 1.05900 (23 pips)
+  -> reply 2837 2026-05-28T15:00 | Tp 1 preso 🔥
+  -> reply 2840 2026-05-29T09:22 | Tp 2 preso🔥
+
+[HYBRID_FOREX] 2826 2026-05-21T11:24 | 🟢BUY GBPCAD 1.84900
+    
+    TP1 1.85750
+    TP2 1.86500
+    TP3 open
+    
+    SL 1.84060 (85 pips)
+  -> reply 2827 2026-05-22T15:45 | Tp 1 preso 🔥
+  -> reply 2830 2026-05-25T11:48 | Tp 2 preso 🔥
+  -> reply 2846 2026-06-02T10:44 | Chiudiamo anche questa operazione ad un +2R 🔥
+
+[HYBRID_FOREX] 2825 2026-05-21T10:56 | 🟢BUY AUDJPY 113.340
+    
+    TP1 114.270
+    TP2 115.280
+    TP3 open
+    
+    SL 112.380 (96 pips)
+  -> reply 2832 2026-05-26T13:47 | Tp 1 preso 🔥
+
+[HYBRID_FOREX] 2823 2026-05-20T12:12 | 🟢BUY NZDUSD 0.58450
+    
+    TP1 0.58830
+    TP2 0.59170
+    TP3 open
+    
+    SL 0.58130 (35 pips)
+  -> reply 2824 2026-05-20T15:18 | Tp 1 preso 🔥
+  -> reply 2836 2026-05-28T14:16 | Tp 2 preso 🔥
+  -> reply 2845 2026-06-01T15:54 | Tp3 preso 🫶🏻
+
+[HYBRID_FOREX] 2820 2026-05-18T08:43 | 🟢BUY EURUSD 1.16400
+    
+    TP1 1.16760
+    TP2 1.17150
+    TP3 open
+    
+    SL 1.16040 (37 pips)
+  -> reply 2821 2026-05-19T18:00 | Stop loss preso
+
+[HYBRID_FOREX] 2815 2026-05-14T08:59 | 🔴SELL NZDCAD 0.81400
+    
+    TP1 0.80600
+    TP2 0.80000
+    TP3 open 
+    
+    SL 0.82150 (78 pips)
+  -> reply 2817 2026-05-15T06:41 | Tp 1 preso 🔥
+  -> reply 2822 2026-05-20T12:10 | Noi chiudiamo la posizione con  +1,2R🔥
+
+[HYBRID_FOREX] 2812 2026-05-13T12:34 | 🟢BUY EURUSD 1.17065
+    
+    TP1 1.17500
+    TP2 open
+    TP3 open
+    
+    SL 1.16720 (38 pips)
+  -> reply 2813 2026-05-13T12:34 | Noi entriamo con size ridotte in questa operazione
+  -> reply 2816 2026-05-14T09:03 | Portiamo lo Stoploss a 1.16900 così da avere un rischio praticamente a 0
+
+[HYBRID_FOREX] 2182 2025-09-10T07:00 | Sell GBPJPY 199.600
+    
+    Tp1: 199.400
+    Tp2: 199.200
+    Tp3: 198.000
+    Sl: 199.900 -30 pips
+  -> reply 2183 2025-09-10T07:50 | Ragazzi impostiamo lo Sl al prezzo di ingresso 🫶🏻
+
+[HYBRID_FOREX] 2181 2025-09-02T11:56 | Sell AUDCHF 0.5237
+    
+    Tp1: 0.52100
+    Tp2: 0.51800
+    Tp3: 0.51000
+    Sl: 0.52800 -43 pips
+
+[HYBRID_FOREX] 2177 2025-09-02T07:05 | Sell GBPJPY 200.150
+    Tp1: 199.800 
+    Tp2: 199.600
+    Tp3: 199.000
+    
+    Sl: 200.400 -25pips
+
+[HYBRID_FOREX] 2175 2025-08-27T11:11 | Buy GBPUSD 1.34200
+    
+    Tp1: 1.34400
+    Tp2: 1.34600
+    Tp3: 1.35200
+    Sl: 1.33800 -40 pips
+  -> reply 2176 2025-08-27T16:50 | Tp2 preso
+
+[HYBRID_FOREX] 2169 2025-08-19T18:48 | Sell EURGBP 0.86400
+    
+    Tp1: 0.86100
+    Tp2: 0.85800
+    Tp3: 0.85000
+    Sl: 0.86800 -40pips
+  -> reply 2170 2025-08-20T06:56 | Tp1 preso ✅
+
+[HYBRID_FOREX] 2163 2025-08-14T07:45 | Buy EURJPY 170.980
+    
+    Tp1: 171.150
+    Tp2: 171.350
+    Tp3: 172.350
+    Sl: 170.500 -48 pips
+  -> reply 2164 2025-08-14T10:35 | Tp1, e tp2 presi ✅
+  -> reply 2165 2025-08-14T14:36 | Direi perfetta no?
+
+[HYBRID_FOREX] 2156 2025-08-13T18:30 | Buy Xauusd 3351
+    
+    Tp1: 3360
+    Tp2: 3370
+    Tp3: 3380
+    Sl: 3344 -70 pips
+  -> reply 2159 2025-08-13T19:22 | Ragazzi noi impostiamo lo Sl sul prezzo di ingresso, siamo già 40 pips running🚀🚀
+  -> reply 2160 2025-08-13T22:14 | Anticipiamo il tp1 ad ora siamo ad 1rr running 💸💸
+  -> reply 2161 2025-08-14T06:02 | 
+
+[HYBRID_FOREX] 2152 2025-08-11T14:11 | Sell USDJPY 148.000 
+    
+    Tp1: 147.800
+    Tp2: 147.600
+    Tp3: 146.000
+    Sl: 148.400 -40 pips
+  -> reply 2154 2025-08-11T15:26 | Entrata ancora valida ragazzi ❤️
+  -> reply 2155 2025-08-12T07:52 | Sl preso ragazzi ❌
+
+[HYBRID_FOREX] 2146 2025-07-31T14:49 | Sell GBPJPY 198.800 
+    
+    Tp1: 198.500
+    Tp2: 198.000
+    Tp3: 197.000
+    Sl: 199.300 -50 pips
+
+[HYBRID_FOREX] 2138 2025-07-30T11:10 | Buy CHFJPY 183.600 
+    
+    Tp1: 183.800
+    Tp2: 184.000
+    Tp3: 185.500
+    Sl: 183.200 -40 pips
+  -> reply 2139 2025-07-30T12:14 | Tp1 preso

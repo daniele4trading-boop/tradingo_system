@@ -130,6 +130,38 @@
         "max_level_deviation_pct": 60,
         "notes": "Solo BTCUSD/XAGUSD, lotto minimo 0.01 per posizione (4 TP = 4x0.01, XAG TP OPEN = 1x0.01). Stato separato dal VIP oro. Solo Vantage: InpChannels=forex,ivan,ivanbtc."
       }
+    },
+    {
+      "id": "CH_HYBRIDGOLD",
+      "enabled": false,
+      "telegram_id": -1001969939917,
+      "name": "Hybrid | Setup Gold",
+      "parser": "hybrid",
+      "signal_file": "signal_ch_hybridgold.json",
+      "magic_base": 15000,
+      "execution": {
+        "mode": "fixed_lot",
+        "fixed_lot_single": 0.01,
+        "fixed_lot_per_tp": 0.01,
+        "tp_levels_expected": 2,
+        "notes": "Segnali a mercato XAUUSD (Tp3 open = runner). Gestione via reply al segnale. Solo Vantage."
+      }
+    },
+    {
+      "id": "CH_HYBRIDFX",
+      "enabled": false,
+      "telegram_id": -1002088387580,
+      "name": "Hybrid | Setup Forex",
+      "parser": "hybrid",
+      "signal_file": "signal_ch_hybridfx.json",
+      "magic_base": 16000,
+      "execution": {
+        "mode": "fixed_lot",
+        "fixed_lot_single": 0.01,
+        "fixed_lot_per_tp": 0.01,
+        "tp_levels_expected": 2,
+        "notes": "Segnali a mercato forex multi-pair. Gestione via reply al segnale. Solo Vantage."
+      }
     }
   ]
 }
