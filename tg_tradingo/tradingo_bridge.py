@@ -2980,6 +2980,118 @@ def parser_ivan_btc(text: str, ch: dict, state: BridgeState | None = None) -> di
 # MAPPA PARSER
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PARSER HYBRID — Hybrid | Setup Gold / Hybrid | Setup Forex
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Segnale (a mercato, TP "open" = runner senza TP):
+#   "▲ Buy xauusd.pro 4124 / Sl: 4119 (50 pips) / Tp1: 4129 / Tp2: 4134 / Tp3: open"
+#   "🟢BUY CHFJPY 190.128 / TP1 190.760 / TP2 191.420 / TP3 open / SL 189.500 (63 pips)"
+# Gestione = reply al segnale: "Noi anticipiamo il tp 1 qui", "Stop loss preso",
+# "Noi chiudiamo ora la posizione a 2.3R", "Break even preso". "Tp N preso" è solo
+# informativo (BE automatico nell'EA). Analisi e aggiornamenti: nessun segnale.
+_HYBRID_OPEN_RE = re.compile(
+    r"\b(BUY|SELL)\s+([A-Z]{6})(?:\.[A-Z]+)?\s+(\d+(?:[.,]\d+)?)\b")
+_HYBRID_PENDING_RE = re.compile(r"\b(?:BUY|SELL)\s+(?:LIMIT|STOP)\b")
+_HYBRID_SL_RE = re.compile(r"\bSL\s*:?\s*(\d+(?:[.,]\d+)?)")
+_HYBRID_TP_RE = re.compile(r"\bTP\s*([1-4])\s*:?\s*(\d+(?:[.,]\d+)?|OPEN)")
+_HYBRID_TRADES: dict[tuple[str, int], dict] = {}
+_HYBRID_LAST: dict[str, dict] = {}
+
+
+def _hybrid_target(ch: dict, reply_to: int | None) -> dict | None:
+    if reply_to is not None:
+        t = _HYBRID_TRADES.get((ch["id"], int(reply_to)))
+        if t:
+            return t
+    return _HYBRID_LAST.get(ch["id"])
+
+
+def parser_hybrid(text: str, ch: dict, state: BridgeState | None = None,
+                  reply_to: int | None = None, msg_id: int | None = None,
+                  is_edit: bool = False) -> dict | None:
+    raw = text.strip()
+    upper = strip_md(raw).upper()
+    tag = ch.get("id", "HYBRID")
+
+    m_open = _HYBRID_OPEN_RE.search(upper)
+    if m_open and _HYBRID_SL_RE.search(upper):
+        if _HYBRID_PENDING_RE.search(upper):
+            log.warning(f"[{tag}] Ordine pendente non supportato: {raw[:60]}")
+            return None
+        if is_edit and msg_id is not None and (tag, int(msg_id)) in _HYBRID_TRADES:
+            log.info(f"[{tag}] EDIT di un segnale già aperto, ignorato: {raw[:60]}")
+            return None
+        direction = m_open.group(1)
+        symbol = normalize_symbol(m_open.group(2))
+        entry = pf(m_open.group(3))
+        sl = pf(_HYBRID_SL_RE.search(upper).group(1))
+        tps = [pf(v) for _, v in sorted(_HYBRID_TP_RE.findall(upper)) if v != "OPEN"]
+        tps = [v for v in tps if v is not None]
+        if entry is None or sl is None:
+            return None
+        if (direction == "BUY" and sl >= entry) or (direction == "SELL" and sl <= entry):
+            log.warning(f"[{tag}] SL dal lato sbagliato, nessun segnale: {raw[:60]}")
+            return None
+        trade = {"symbol": symbol, "direction": direction, "entry": entry}
+        if msg_id is not None:
+            _HYBRID_TRADES[(tag, int(msg_id))] = trade
+        _HYBRID_LAST[tag] = trade
+        log.info(f"[{tag}] OPEN {direction} {symbol} @ {entry} TP={tps} SL={sl}")
+        return {
+            "action":       "OPEN",
+            "direction":    direction,
+            "symbol":       symbol,
+            "entry":        entry,
+            "tp_levels":    tps,
+            "sl":           sl,
+            "magic_base":   ch["magic_base"],
+            "raw_message":  raw,
+        }
+
+    if len(upper) > 160:
+        return None
+    target = _hybrid_target(ch, reply_to)
+    if not target:
+        return None
+    base = {"symbol": target["symbol"], "direction": target["direction"],
+            "magic_base": ch["magic_base"], "raw_message": raw}
+
+    m_ant = re.search(r"ANTICIP\w*\s+(?:QUA\s+|QUI\s+)?(?:IL\s+)?(?:NOSTRO\s+)?TP\s*(\d)", upper)
+    if m_ant:
+        log.info(f"[{tag}] CHECK_AND_CLOSE_TP{m_ant.group(1)} {target['symbol']}: {raw[:60]}")
+        return {"action": "CHECK_AND_CLOSE_TP", "tp_index": int(m_ant.group(1)), **base}
+    sl_word = r"(?:STOP\s*-?\s*LOSS|STOPLOSS|\bSL\b)"
+    if re.search(rf"(?:SPOST|PORT|CORRE|ERRORE|AGGIORN)\w*.*{sl_word}|{sl_word}.*\bÈ\b", upper):
+        if re.search(r"BREAK\s*-?\s*EVEN|BREAKEVEN|\bBE\b|INGRESSO|ENTRATA", upper):
+            log.info(f"[{tag}] CHECK_AND_BE {target['symbol']} (SL a BE): {raw[:60]}")
+            return {"action": "CHECK_AND_BE", "tp_index": 1, **base}
+        m_px = re.search(rf"{sl_word}\D{{0,12}}?(\d+(?:[.,]\d+)?)\b", upper)
+        new_sl = pf(m_px.group(1)) if m_px else None
+        if new_sl is None:
+            log.info(f"[{tag}] Correzione SL senza prezzo, ignorata: {raw[:60]}")
+            return None
+        ref = target.get("entry")
+        if ref and abs(new_sl - ref) / ref > 0.03:
+            log.warning(f"[{tag}] SL {new_sl} troppo lontano dall'entry {ref}, ignorato: {raw[:60]}")
+            return None
+        log.info(f"[{tag}] UPDATE_SL {target['symbol']} SL={new_sl}: {raw[:60]}")
+        return {"action": "UPDATE_SL", "new_sl": new_sl, **base}
+    if re.search(
+        rf"^\W*{sl_word}\W*$|{sl_word}\s+PRES|(?:ANDAT\w*|ANDANDO|FINIT\w*)\s+(?:IN|A)\s+{sl_word}"
+        rf"|{sl_word}\s+E\s+SETUP\s+INVALIDATO", upper):
+        log.info(f"[{tag}] CHECK_AND_CLOSE {target['symbol']} (stop preso): {raw[:60]}")
+        return {"action": "CHECK_AND_CLOSE", **base}
+    if re.search(r"\bCHIUD\w*\b|\bSI\s+CHIUDE\b", upper) and not re.search(
+            r"GIORNATA|SETTIMANA|\bPARTE\b|PARZIAL|PER\s+CHI|CHI\s+VUOLE|IMPOSTATE|PU[OÒ]\s+CHIUDER", upper):
+        log.info(f"[{tag}] CLOSE_ALL_SYMBOL {target['symbol']}: {raw[:60]}")
+        return {"action": "CLOSE_ALL_SYMBOL", **base}
+    if re.search(r"BREAK\s*-?\s*EVEN\s+PRES", upper):
+        log.info(f"[{tag}] CHECK_AND_BE {target['symbol']}: {raw[:60]}")
+        return {"action": "CHECK_AND_BE", "tp_index": 1, **base}
+    return None
+
+
 PARSERS = {
     "zanni_vip":  parser_zanni_vip,
     "sala_gold":  parser_sala_gold,
@@ -2988,6 +3100,7 @@ PARSERS = {
     "sala_stark": parser_sala_stark,
     "ivan_vip":   parser_ivan_vip,
     "ivan_btc":   parser_ivan_btc,
+    "hybrid":     parser_hybrid,
     "placeholder": lambda _t, _c: None,
 }
 
@@ -3107,7 +3220,14 @@ async def run_bridge():
             )
 
             try:
-                if ch_cfg["parser"] in (
+                if ch_cfg["parser"] == "hybrid":
+                    signal = parser(
+                        text, ch_cfg, bridge_state,
+                        reply_to=getattr(event.message, "reply_to_msg_id", None),
+                        msg_id=getattr(event.message, "id", None),
+                        is_edit=is_edit,
+                    )
+                elif ch_cfg["parser"] in (
                     "sala_gold", "sala_oro", "sala_vip", "sala_stark", "ivan_vip"
                 ):
                     signal = parser(text, ch_cfg, bridge_state)
