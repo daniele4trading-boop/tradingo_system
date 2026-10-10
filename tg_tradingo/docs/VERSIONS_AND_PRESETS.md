@@ -220,7 +220,7 @@ Tutti in `tg_tradingo/mql5/presets/`, si caricano da `Inputs → Load` sul chart
 |---|---|---|---|---|---|
 | `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Contabo) | off | off | tutti e 5 | conto "misura i canali": nessun guard altera i risultati |
 | `TG_TradinGo_Ultima_iFunds_Demo.set` | Ultima demo (Gamehosting) | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | prova delle regole iFunds; `InpMagicOffset=0` per non perdere le posizioni già aperte |
-| `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 2%, chiusura 3%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.01 | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
+| `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 3%, chiusura 3,5%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.01 | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
 | `TG_TradinGo_iFunds_10k_dd6.set` | iFunds 10k reale | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | `InpMagicOffset=500000` |
 | `TG_TradinGo_iFunds_50k_dd6.set` | iFunds 50k reale | 6%, start 50.000 → floor 47.000 | on, cap 0,25 | ivan, stark | scalata dopo il 10k |
 | `TG_TradinGo_Reale_Personale.set` | conti reali personali | 10%, equity catturata al primo attach | off | ivan, stark (da scegliere) | template: lotti, suffisso simbolo e % vanno adattati al broker |
