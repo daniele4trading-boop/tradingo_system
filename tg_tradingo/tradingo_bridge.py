@@ -3092,6 +3092,22 @@ def parser_hybrid(text: str, ch: dict, state: BridgeState | None = None,
     return None
 
 
+def update_levels_safe(ch_cfg: dict, text: str) -> None:
+    """Livelli dalle analisi -> CSV per TG_TradinGoLevels. Mai bloccante per i segnali."""
+    lv_cfg = CONFIG.get("levels") or {}
+    if not lv_cfg.get("enabled"):
+        return
+    try:
+        import levels_extract
+        default = "XAUUSD" if ch_cfg.get("id") == "CH_HYBRIDGOLD" else None
+        for f in lv_cfg.get("output_files", []):
+            n = levels_extract.update_levels(Path(f), ch_cfg["id"], text, default_symbol=default)
+        if n:
+            log.info(f"[LEVELS] {ch_cfg['id']}: {n} livelli aggiornati")
+    except Exception as exc:
+        log.warning(f"[LEVELS] {ch_cfg.get('id')}: {exc}")
+
+
 PARSERS = {
     "zanni_vip":  parser_zanni_vip,
     "sala_gold":  parser_sala_gold,
@@ -3214,6 +3230,8 @@ async def run_bridge():
                         direction = m.group(1) or m.group(2)
                         bridge_state.set_ch2_pending(direction)
                         log.info(f"[CH2] EDIT con dati completi → forzo UPDATE_OPEN {direction}")
+
+            update_levels_safe(ch_cfg, text)
 
             matched_ignore = matched_ignore_pattern(
                 ch_cfg["parser"], strip_md(text).upper()

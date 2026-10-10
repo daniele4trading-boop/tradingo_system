@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-KINDS = ("support", "resistance", "liquidity")
+KINDS = ("support", "resistance", "liquidity", "key", "watch_buy", "watch_sell", "watch")
 HEADER = ["symbol", "source", "kind", "price", "price_to", "valid_until_utc", "label"]
 
 

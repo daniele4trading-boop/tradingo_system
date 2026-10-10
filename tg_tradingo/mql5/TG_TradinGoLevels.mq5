@@ -11,6 +11,7 @@
 
 input string InpLevelsFile        = "tradingo\\tradingo_levels.csv";
 input int    InpRefreshSec        = 30;
+input bool   InpCommonFolder      = true;   // file in Terminal\\Common\\Files (uno per tutti i terminali)
 input color  InpColorHybridGold   = clrGold;
 input color  InpColorHybridForex  = clrDeepSkyBlue;
 input color  InpColorSertorio     = clrOrchid;
@@ -48,7 +49,20 @@ ENUM_LINE_STYLE KindStyle(const string kind)
   {
    if(kind == "resistance") return STYLE_DASH;
    if(kind == "liquidity")  return STYLE_DOT;
+   if(StringFind(kind, "watch") == 0) return STYLE_DASHDOTDOT;
    return STYLE_SOLID;
+  }
+
+//+------------------------------------------------------------------+
+string KindName(const string kind)
+  {
+   if(kind == "support")    return "supporto";
+   if(kind == "resistance") return "resistenza";
+   if(kind == "liquidity")  return "liquidita'";
+   if(kind == "key")        return "livello chiave";
+   if(kind == "watch_buy")  return "BUY in osservazione";
+   if(kind == "watch_sell") return "SELL in osservazione";
+   return "in osservazione";
   }
 
 //+------------------------------------------------------------------+
@@ -87,7 +101,7 @@ void DrawLevel(const int idx, const string src, const string kind,
    else
      {
       ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
-      ObjectSetInteger(0, name, OBJPROP_WIDTH, kind == "liquidity" ? 1 : 2);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, kind == "key" ? 3 : (kind == "liquidity" ? 1 : 2));
      }
    ObjectSetInteger(0, name, OBJPROP_COLOR, c);
    ObjectSetInteger(0, name, OBJPROP_STYLE, KindStyle(kind));
@@ -100,7 +114,7 @@ void DrawLevel(const int idx, const string src, const string kind,
      {
       string tname = name + "_T";
       ObjectCreate(0, tname, OBJ_TEXT, 0, TimeCurrent(), priceTo > 0.0 ? priceTo : price);
-      ObjectSetString(0, tname, OBJPROP_TEXT, "  " + kind + (label != "" ? " " + label : ""));
+      ObjectSetString(0, tname, OBJPROP_TEXT, "  " + (label != "" ? label : KindName(kind)));
       ObjectSetInteger(0, tname, OBJPROP_COLOR, c);
       ObjectSetInteger(0, tname, OBJPROP_FONTSIZE, 8);
       ObjectSetInteger(0, tname, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
@@ -132,6 +146,7 @@ void DrawLegend(const int count)
    for(int i = 0; i < ArraySize(g_sources); i++)
       LegendLine(row++, "■ " + SourceName(g_sources[i]), SourceColor(g_sources[i]));
    LegendLine(row++, "── supporto   - - resistenza   ··· liquidita'", clrDarkGray);
+   LegendLine(row++, "━━ livello chiave   -··- entrata in osservazione", clrDarkGray);
   }
 
 //+------------------------------------------------------------------+
@@ -139,7 +154,7 @@ void Reload()
   {
    ObjectsDeleteAll(0, LV_PREFIX);
    ArrayResize(g_sources, 0);
-   int h = FileOpen(InpLevelsFile, FILE_READ | FILE_CSV | FILE_ANSI | FILE_SHARE_READ | FILE_SHARE_WRITE, ',');
+   int h = FileOpen(InpLevelsFile, FILE_READ | FILE_CSV | FILE_ANSI | FILE_SHARE_READ | FILE_SHARE_WRITE | (InpCommonFolder ? FILE_COMMON : 0), ',');
    int count = 0;
    if(h != INVALID_HANDLE)
      {
@@ -198,7 +213,7 @@ void OnDeinit(const int reason)
 void OnTimer()
   {
    long mod = 0;
-   int h = FileOpen(InpLevelsFile, FILE_READ | FILE_BIN | FILE_SHARE_READ | FILE_SHARE_WRITE);
+   int h = FileOpen(InpLevelsFile, FILE_READ | FILE_BIN | FILE_SHARE_READ | FILE_SHARE_WRITE | (InpCommonFolder ? FILE_COMMON : 0));
    if(h != INVALID_HANDLE)
      {
       mod = FileGetInteger(h, FILE_MODIFY_DATE);
