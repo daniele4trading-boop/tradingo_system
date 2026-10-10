@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.29"
+#property version   "2.30"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.29"
+#define EA_VERSION "2.30"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -132,6 +132,18 @@ input double InpDdFloatOro           = 12.4;
 input double InpDdFloatForex         = 20.0;
 // Concurrent exposure cap across all TG positions. 0 = off.
 input double InpMaxConcurrentLots    = 0.0;
+// v2.30 daily drawdown guard (prop rules, e.g. Agora 4%). Reference = max(balance,
+// equity) at the daily reset (InpDdDailyResetHourNY New York time, DST handled).
+// Equity <= ref*(1 - DailyPct*CloseAtPct) closes all TG positions and blocks opens
+// until the next reset; <= ref*(1 - DailyPct*BlockNewAtPct) only blocks opens.
+// Account equity includes positions of other EAs on the same account. 0 = off.
+input double InpDdDailyPct           = 0.0;
+input double InpDdDailyCloseAtPct    = 75.0;
+input double InpDdDailyBlockNewAtPct = 50.0;
+input int    InpDdDailyResetHourNY   = 17;
+// v2.30 trailing max DD: at each daily reset the max-DD reference (start) rises to
+// max(balance, equity) if higher (Agora: highest end-of-day value). false = static.
+input bool   InpDdTrailEod           = false;
 
 //--- trade objects
 CTrade         g_trade;
@@ -2099,6 +2111,12 @@ bool     g_bridgeStale = false;
 #define TG_DD_START_NAME "TG_TRADINGO_DD_START"
 #define TG_DD_PEAK_NAME  "TG_TRADINGO_DD_PEAK"
 #define TG_DD_HALT_NAME  "TG_TRADINGO_DD_HALT"
+#define TG_DDD_DAY_NAME  "TG_TRADINGO_DDD_DAY"
+#define TG_DDD_REF_NAME  "TG_TRADINGO_DDD_REF"
+#define TG_DDD_HIT_NAME  "TG_TRADINGO_DDD_HIT"
+datetime g_dddDay       = 0;    // UTC start of the current prop day
+double   g_dddRef       = 0.0;  // max(balance, equity) at that reset
+bool     g_dddBreached  = false;
 double   g_ddStart      = 0.0;  // static reference equity (never recomputed)
 double   g_ddPeakClosed = 0.0;  // peak of closed equity (balance), never decreases
 bool     g_ddHalted     = false;
@@ -2445,7 +2463,11 @@ void DdInit()
       return;
      }
    if(InpDdStartEquity > 0.0)
+     {
       g_ddStart = InpDdStartEquity;
+      if(InpDdTrailEod && GlobalVariableCheck(TG_DD_START_NAME))
+         g_ddStart = MathMax(g_ddStart, GlobalVariableGet(TG_DD_START_NAME));
+     }
    else if(GlobalVariableCheck(TG_DD_START_NAME))
       g_ddStart = GlobalVariableGet(TG_DD_START_NAME);
    else
@@ -2516,6 +2538,122 @@ void CheckEquityFloorGuard()
          " -> closing ALL TG positions, halting new opens");
    CloseAllOurPositions("KILLSWITCH_EQUITY_FLOOR");
    DdSetHalted(true);
+  }
+
+//+==================================================================+
+//| v2.30 daily drawdown guard + trailing end-of-day max DD          |
+//+==================================================================+
+int NthSundayOfMonth(const int year, const int mon, const int n)
+  {
+   MqlDateTime t;
+   t.year = year; t.mon = mon; t.day = 1; t.hour = 0; t.min = 0; t.sec = 0;
+   MqlDateTime s;
+   TimeToStruct(StructToTime(t), s);
+   return 1 + ((7 - s.day_of_week) % 7) + 7 * (n - 1);
+  }
+
+//+------------------------------------------------------------------+
+//| US DST: 2nd Sunday of March 07:00 UTC -> 1st Sunday of Nov 06:00  |
+//+------------------------------------------------------------------+
+bool NewYorkDst(const datetime utc)
+  {
+   MqlDateTime u;
+   TimeToStruct(utc, u);
+   MqlDateTime a;
+   a.year = u.year; a.mon = 3; a.day = NthSundayOfMonth(u.year, 3, 2);
+   a.hour = 7; a.min = 0; a.sec = 0;
+   MqlDateTime b;
+   b.year = u.year; b.mon = 11; b.day = NthSundayOfMonth(u.year, 11, 1);
+   b.hour = 6; b.min = 0; b.sec = 0;
+   return (utc >= StructToTime(a) && utc < StructToTime(b));
+  }
+
+//+------------------------------------------------------------------+
+datetime DddDayStartUtc(const datetime utc)
+  {
+   int off = NewYorkDst(utc) ? 4 : 5;
+   datetime ny = utc - off * 3600;
+   MqlDateTime n;
+   TimeToStruct(ny, n);
+   n.hour = MathMax(0, MathMin(23, InpDdDailyResetHourNY)); n.min = 0; n.sec = 0;
+   datetime resetNy = StructToTime(n);
+   if(ny < resetNy)
+      resetNy -= 86400;
+   return resetNy + off * 3600;
+  }
+
+//+------------------------------------------------------------------+
+bool DddEnabled()
+  {
+   return (InpDdDailyPct > 0.0);
+  }
+
+//+------------------------------------------------------------------+
+double DddLevel(const double consumedPct)
+  {
+   double pct = MathMax(0.0, MathMin(100.0, consumedPct));
+   return g_dddRef * (1.0 - InpDdDailyPct * pct / 10000.0);
+  }
+
+//+------------------------------------------------------------------+
+//| New prop day: snapshot max(balance, equity), raise the trailing   |
+//| max-DD reference. On init the same-day snapshot is restored.      |
+//+------------------------------------------------------------------+
+void DddRollDay(const bool atInit)
+  {
+   if(!DddEnabled() && !InpDdTrailEod)
+      return;
+   datetime day = DddDayStartUtc(TimeGMT());
+   if(day == g_dddDay)
+      return;
+   double ref = MathMax(AccountInfoDouble(ACCOUNT_BALANCE), AccountInfoDouble(ACCOUNT_EQUITY));
+   bool restored = (atInit && GlobalVariableCheck(TG_DDD_DAY_NAME)
+                    && (datetime)GlobalVariableGet(TG_DDD_DAY_NAME) == day
+                    && GlobalVariableCheck(TG_DDD_REF_NAME));
+   if(restored)
+      ref = GlobalVariableGet(TG_DDD_REF_NAME);
+   else if(InpDdTrailEod && DdGuardEnabled() && ref > g_ddStart)
+     {
+      Print("[TradinGo] DD_TRAIL max-DD reference ", DoubleToString(g_ddStart, 2),
+            " -> ", DoubleToString(ref, 2), " (end-of-day high)");
+      g_ddStart = ref;
+      GlobalVariableSet(TG_DD_START_NAME, g_ddStart);
+     }
+   g_dddDay = day;
+   g_dddRef = ref;
+   g_dddBreached = (restored && GlobalVariableCheck(TG_DDD_HIT_NAME)
+                    && (datetime)GlobalVariableGet(TG_DDD_HIT_NAME) == day);
+   GlobalVariableSet(TG_DDD_DAY_NAME, (double)day);
+   GlobalVariableSet(TG_DDD_REF_NAME, ref);
+   if(DddEnabled())
+      Print("[TradinGo] DAILY_DD day_start_utc=", TimeToString(day, TIME_DATE | TIME_MINUTES),
+            " ref=", DoubleToString(ref, 2),
+            " limit_pct=", DoubleToString(InpDdDailyPct, 2),
+            " block_new_at_equity=", DoubleToString(DddLevel(InpDdDailyBlockNewAtPct), 2),
+            " close_all_at_equity=", DoubleToString(DddLevel(InpDdDailyCloseAtPct), 2),
+            " limit_equity=", DoubleToString(DddLevel(100.0), 2),
+            (restored ? " (restored)" : ""),
+            (g_dddBreached ? " BREACHED today: opens blocked until next reset" : ""));
+  }
+
+//+------------------------------------------------------------------+
+void CheckDailyDdGuard()
+  {
+   DddRollDay(false);
+   if(!DddEnabled() || g_dddBreached || g_dddRef <= 0.0)
+      return;
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double trip = DddLevel(InpDdDailyCloseAtPct);
+   if(equity > trip)
+      return;
+   Print("[TradinGo] CRITICAL DAILY_DD_BREACH equity=", DoubleToString(equity, 2),
+         " <= trip=", DoubleToString(trip, 2),
+         " ref=", DoubleToString(g_dddRef, 2),
+         " limit_equity=", DoubleToString(DddLevel(100.0), 2),
+         " -> closing ALL TG positions, opens blocked until next daily reset");
+   CloseAllOurPositions("KILLSWITCH_DAILY_DD");
+   g_dddBreached = true;
+   GlobalVariableSet(TG_DDD_HIT_NAME, (double)g_dddDay);
   }
 
 //+==================================================================+
@@ -2698,6 +2836,18 @@ bool IsOpenBlocked(const string symbol)
      {
       Print("[TradinGo] OPEN blocked — kill switch flag '", InpHaltFlagFile, "' present");
       return true;
+     }
+   if(DddEnabled() && g_dddRef > 0.0)
+     {
+      double eqDay = AccountInfoDouble(ACCOUNT_EQUITY);
+      if(g_dddBreached || eqDay <= DddLevel(InpDdDailyBlockNewAtPct))
+        {
+         Print("[TradinGo] OPEN blocked — daily DD: equity=", DoubleToString(eqDay, 2),
+               " ref=", DoubleToString(g_dddRef, 2),
+               " block_level=", DoubleToString(DddLevel(InpDdDailyBlockNewAtPct), 2),
+               (g_dddBreached ? " (breached today)" : ""));
+         return true;
+        }
      }
    if(DdGuardEnabled())
      {
@@ -3476,6 +3626,7 @@ int OnInit()
 
    ParseChannels();
    DdInit();
+   DddRollDay(true);
    CheckHaltFlag();
    g_trade.SetDeviationInPoints(InpMaxSlippagePoints);
    EventSetMillisecondTimer(InpPollMs);
@@ -3562,6 +3713,7 @@ void OnTick()
   {
    ProcessBePending();
    CheckEquityFloorGuard();
+   CheckDailyDdGuard();
    CheckFloatingKillSwitch();
    CheckMaxHolding();
    UpdateExcursions();
