@@ -10,7 +10,7 @@
 
 InpSignalsPath=
 InpUseAbsolutePath=false
-InpChannels=gold,forex,oro,stark,ivan
+InpChannels=gold,forex,stark,ivan,ivanbtc
 InpSymbolSuffix=
 InpLotMultiplier=1.0
 InpAddLotFactor=0.5
