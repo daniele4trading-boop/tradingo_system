@@ -225,7 +225,7 @@ Tutti in `tg_tradingo/mql5/presets/`, si caricano da `Inputs → Load` sul chart
 
 | Preset | Conto | Guard DD | Sizing serbatoio | Canali | Note |
 |---|---|---|---|---|---|
-| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Contabo) | off | off | tutti e 5 | conto "misura i canali": nessun guard altera i risultati |
+| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Gamehosting) | off | off | gold, forex, stark, ivan, ivanbtc | conto "misura i canali": riceve tutti i canali attivi, nessun guard altera i risultati. ORO VIP dismesso (10/2026) |
 | `TG_TradinGo_Ultima_iFunds_Demo.set` | Ultima demo (Gamehosting) | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | prova delle regole iFunds; `InpMagicOffset=0` per non perdere le posizioni già aperte |
 | `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 3%, chiusura 3,5%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.01 | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
 | `TG_TradinGo_iFunds_10k_dd6.set` | iFunds 10k reale | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | `InpMagicOffset=500000` |
@@ -246,8 +246,10 @@ Dettaglio delle regole iFunds e procedure di test dei guard: [`IFUNDS_SETUP.md`]
 
 | Macchina | Componente | Preset |
 |---|---|---|
-| Contabo `144.91.76.28` | bridge Python + terminale Vantage demo | `TG_TradinGo_Vantage_Demo.set` |
-| Gamehosting `100.74.9.8` | terminale Ultima demo | `TG_TradinGo_Ultima_iFunds_Demo.set` |
+| Gamehosting `100.74.9.8` | bridge Python + terminale Vantage demo | `TG_TradinGo_Vantage_Demo.set` |
+| Gamehosting `100.74.9.8` | terminale Xlence reale (solo IVAN) | `TG_TradinGo_Xlence_Reale_IVAN.set` |
+| Gamehosting `100.74.9.8` | terminale Axi reale (solo IVAN) | `TG_TradinGo_Axi_Reale_IVAN.set` |
+| Contabo `144.91.76.28` | offline da 10/2026: bridge e task MT5 devono restare disabilitati | — |
 
 Il deploy non è automatico: `C:\StatArb\scripts\deploy_tg_tradingo_to_vps.ps1` per il bridge,
 copia manuale del `.mq5` + compilazione in MetaEditor per l'EA.
