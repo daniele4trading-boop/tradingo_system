@@ -10,6 +10,7 @@ if str(TG_ROOT) not in sys.path:
     sys.path.insert(0, str(TG_ROOT))
 
 from webapp.pnl import (
+    build_magic_map,
     build_phase2,
     exec_stats,
     normalize_channel,
@@ -143,3 +144,36 @@ class TestBuildPhase2:
         assert out["equity"]["latest"]["equity"] == 9975.0
         # OPEN then CLOSE on same ticket → no open positions
         assert out["open_positions"] == []
+
+
+class TestMagicMap:
+    CHANNELS = [
+        {"id": "CH_GOLD", "magic_base": 12000},
+        {"id": "CH_FOREX", "magic_base": 13000},
+        {"id": "CH_STARK", "magic_base": 14000},
+        {"id": "CH_IVAN", "magic_base": 17000},
+        {"id": "CH_IVANBTC", "magic_base": 18000},
+        {"id": "CH_NOMAGIC"},
+    ]
+
+    def test_build_skips_channels_without_magic(self):
+        m = build_magic_map(self.CHANNELS)
+        assert m == {
+            12000: "CH_GOLD",
+            13000: "CH_FOREX",
+            14000: "CH_STARK",
+            17000: "CH_IVAN",
+            18000: "CH_IVANBTC",
+        }
+
+    def test_magic_wins_over_tag(self):
+        m = build_magic_map(self.CHANNELS)
+        # tp_index 1..3 sit on top of magic_base
+        assert normalize_channel("IT", "18003", m) == "CH_IVANBTC"
+        assert normalize_channel("GOLD", 12002, m) == "CH_GOLD"
+        assert normalize_channel("", "14001.0", m) == "CH_STARK"
+
+    def test_unknown_magic_falls_back_to_tag(self):
+        m = build_magic_map(self.CHANNELS)
+        assert normalize_channel("IT", "99001", m) == "CH_IVAN"
+        assert normalize_channel("AS", None, m) == "CH_STARK"
