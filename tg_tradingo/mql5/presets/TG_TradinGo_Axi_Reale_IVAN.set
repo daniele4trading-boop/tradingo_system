@@ -1,25 +1,18 @@
-; TG_TradinGoEA — preset Vantage demo (Contabo), configurazione STANDARD
-; Serve a misurare tutti i canali senza interferenze:
-;   - nessun guard DD (InpDdMaxPct=0 -> log "DD_GUARD disabled")
-;   - killswitch flottante SPENTO (InpMaxFloatingLossUSD=0)
-;   - nessun cooldown dopo chiusura bucket (InpKillSwitchCooldownMin=0)
-;   - lotti 0 = usa fixed_lot dal JSON del bridge (tipico 0.10/TP, 0.20 single)
-; Path segnali: cartella locale MQL5\Files del terminale (nessuna junction)
-; Richiede EA v2.13+
-; Carica da: Inputs EA -> Load -> questo file
-
+; TG_TradinGoEA — preset conto REALE Axi (60341652, Axi-US51-Live, Gamehosting): solo canale IVAN
+; Lotti fissi 0.01 per posizione (setup IVAN = 4 TP -> 0.04 lotti totali).
+; Nessun guard DD/killswitch (scelta dell'utente: conto a rischio accettato).
+; Suffisso simbolo del broker: ".pa" (XAUUSD.pa).
+; Tolleranza off-market 200 pt, guard % solo su entry+SL (EA >= 2.29), BE all'entry del segnale.
 InpSignalsPath=
 InpUseAbsolutePath=false
-InpChannels=gold,forex,stark,ivan,ivanbtc,hybridgold,hybridfx
-InpSymbolSuffix=
+InpChannels=ivan
+InpSymbolSuffix=.pa
 InpLotMultiplier=1.0
 InpAddLotFactor=0.5
-InpLotIvan=0.0
+InpLotIvan=0.01
 InpLotStark=0.0
 InpLotGold=0.0
 InpLotOro=0.0
-InpLotHybridGold=0.01
-InpLotHybridFx=0.01
 InpLotForex=0.0
 InpTagIvan=IT
 InpTagStark=AS
@@ -36,7 +29,17 @@ InpClearSignalAfterProcess=true
 InpIgnoreExistingOnInit=true
 InpStackOpensIfFlatBusy=true
 InpStopBufferPoints=20
+InpMaxLevelDeviationPct=2.0
 InpReentryMaxDriftPctOfSl=40.0
+InpUpdateOpenMaxDriftPctOfSl=40.0
+InpProtectExistingLevels=true
+InpNakedFallbackSlPoints=1200
+InpBeNeverWorseThanEntry=true
+InpBePendingRetry=true
+InpBeUseSignalEntry=true
+InpBeSignalEntryMaxGapPoints=500
+InpMaxSlWidenFactor=2.0
+InpBatchWindowSec=120
 InpAutoBreakEvenOnTp1=true
 InpMagicOffset=0
 InpMaxFloatingLossUSD=0.0
@@ -45,13 +48,14 @@ InpMaxHoldingMinutes=0
 InpHeartbeatMaxAgeSec=180
 InpHeartbeatFile=tradingo_heartbeat.json
 InpEquitySampleSec=60
-InpJournalPrefix=journal\\
+InpJournalPrefix=journal\
 InpSingleInstanceLock=true
 InpLockStaleSec=120
 InpDdMaxPct=0.0
 InpDdStartEquity=0.0
 InpDdCloseAtPct=80.0
 InpDdBlockNewAtPct=60.0
+InpDdRecoveryLot=0.0
 InpHaltFlagFile=tradingo_halt.flag
 InpDdSizingEnabled=false
 InpDdUtilizationPct=50.0

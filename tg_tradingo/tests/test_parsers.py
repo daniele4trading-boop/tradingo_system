@@ -1539,6 +1539,33 @@ class TestIvanReentry:
     @pytest.mark.parametrize(
         "msg",
         [
+            # Caso reale CH_IVAN 02/10 13:14Z: aveva emesso un OPEN a mercato.
+            "Ci stava rientrare da sopra ma non me la sono sentita, ho comunque tanta responsabilità",
+            "Non rientro",
+            "Non rientriamo oggi",
+            "Niente rientro ragazzi",
+            "Nessun rientro per ora",
+            "Mai rientrare contro trend",
+            "Non me la sento di rientrare",
+            "Lasciamo stare il rientro",
+        ],
+    )
+    def test_rientri_negati_non_aprono(self, bridge_state, msg):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        assert parser_ivan_vip(msg, CH_IVAN, bridge_state) is None, msg
+
+    @pytest.mark.parametrize(
+        "msg",
+        ["Rientriamo ora anche se non è il massimo", "Rientrate ora, non abbiate paura"],
+    )
+    def test_negazione_dopo_il_verbo_non_annulla_il_rientro(self, bridge_state, msg):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip(msg, CH_IVAN, bridge_state)
+        assert sig is not None and sig["action"] == "OPEN", msg
+
+    @pytest.mark.parametrize(
+        "msg",
+        [
             # Caso reale CH_IVAN 11/08 15:51Z: aveva chiuso il TP4 running.
             "E anche oggi chiudiamo in Profitto 🏌🏼‍♂️🏌🏼‍♂️",
             "Chiudiamo in profitto",

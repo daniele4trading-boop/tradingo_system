@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
 from datetime import datetime, timezone
 from pathlib import Path
 
-from webapp.pnl import build_phase2, normalize_channel
+from webapp.pnl import build_magic_map, build_phase2, normalize_channel
 
 log = logging.getLogger("TradinGoWeb")
 
@@ -126,6 +126,7 @@ class Collector:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._tradingo_cfg_mtime: float = 0.0
         self._tradingo_cfg = self._load_tradingo_config()
         self.accounts = self._load_accounts()
 
@@ -176,6 +177,21 @@ class Collector:
             log.warning("cannot read tradingo_config %s: %s", path, exc)
             return {}
 
+    def _maybe_reload_tradingo_cfg(self) -> None:
+        """Rilegge tradingo_config solo se il file è stato modificato."""
+        path = self.cfg.get("tradingo_config")
+        if not path:
+            return
+        try:
+            mtime = os.path.getmtime(path)
+            if mtime != self._tradingo_cfg_mtime:
+                with open(path, "r", encoding="utf-8") as fh:
+                    self._tradingo_cfg = json.load(fh)
+                self._tradingo_cfg_mtime = mtime
+                log.info("tradingo_config ricaricato da %s", path)
+        except Exception as exc:
+            log.warning("cannot reload tradingo_config %s: %s", path, exc)
+
     # ── lifecycle ────────────────────────────────────────────────────────
 
     def start(self) -> None:
@@ -204,6 +220,9 @@ class Collector:
     # ── checks ───────────────────────────────────────────────────────────
 
     def collect_once(self) -> dict:
+        self._maybe_reload_tradingo_cfg()
+        magic_map = build_magic_map(self._tradingo_cfg.get("channels", []))
+
         lights: dict[str, dict] = {}
         lights["bridge"] = self._check_bridge_heartbeat()
         lights["mt5_local"] = self._check_mt5_local()
@@ -211,7 +230,7 @@ class Collector:
         lights["friend_heartbeat"] = self._check_friend_heartbeat()
 
         channels, events = self._read_journal_today()
-        accounts = [self._build_account(acc) for acc in self.accounts]
+        accounts = [self._build_account(acc, magic_map=magic_map) for acc in self.accounts]
         # The first account drives the legacy top-level fields and the per-channel PnL.
         phase2 = accounts[0]["data"] if accounts else self._empty_phase2("no account")
         self._merge_pnl_into_channels(channels, phase2)
@@ -220,6 +239,12 @@ class Collector:
         for lt in lights.values():
             if _RANK.get(lt["status"], 1) > _RANK.get(worst, 0):
                 worst = lt["status"]
+
+        mt5_terminals = self._discover_mt5_terminals()
+        alerts = [
+            f"MT5 spento ma dati presenti: {t['broker_name']} ({t['terminal_id'][:8]}…)"
+            for t in mt5_terminals if not t["running"] and t["has_data"]
+        ]
 
         return {
             "generated_utc": _utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -234,6 +259,8 @@ class Collector:
             "equity": phase2.get("equity"),
             "exec": phase2.get("exec"),
             "sources": phase2.get("sources"),
+            "mt5_terminals": mt5_terminals,
+            "alerts": alerts,
             "accounts": [
                 {
                     "id": acc["id"],
@@ -249,8 +276,8 @@ class Collector:
             ],
         }
 
-    def _build_account(self, acc: dict) -> dict:
-        return {**acc, "data": self._build_phase2(acc)}
+    def _build_account(self, acc: dict, magic_map: dict | None = None) -> dict:
+        return {**acc, "data": self._build_phase2(acc, magic_map=magic_map)}
 
     @staticmethod
     def _empty_phase2(error: str) -> dict:
@@ -262,7 +289,7 @@ class Collector:
             "sources": {"error": error},
         }
 
-    def _build_phase2(self, acc: dict) -> dict:
+    def _build_phase2(self, acc: dict, magic_map: dict | None = None) -> dict:
         try:
             return build_phase2(
                 ea_journal_dir=acc.get("ea_journal_dir"),
@@ -270,6 +297,7 @@ class Collector:
                 lookback_days=int(self.cfg.get("pnl_lookback_days", 30)),
                 equity_days=int(self.cfg.get("equity_days", 3)),
                 start_date=acc.get("start_date"),
+                magic_map=magic_map,
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("phase2 build failed for %s: %s", acc.get("id"), exc)
@@ -402,6 +430,58 @@ class Collector:
         out = self._hb_status(age, err)
         out["label"] = "Heartbeat su share amico"
         return out
+
+    # ── MT5 auto-discovery ───────────────────────────────────────────────
+
+    def _discover_mt5_terminals(self) -> list[dict]:
+        """Scansiona i terminali MT5 installati e rileva stato running/data."""
+        base = Path(r"C:\Users\Administrator\AppData\Roaming\MetaQuotes\Terminal")
+        if not base.exists():
+            return []
+        results: list[dict] = []
+        skip = {"Common", "Community"}
+        for sub in base.iterdir():
+            if not sub.is_dir() or sub.name in skip:
+                continue
+            terminal_id = sub.name
+            # broker name da origin.txt
+            broker_name = terminal_id
+            try:
+                origin_path = sub / "origin.txt"
+                if origin_path.exists():
+                    broker_name = origin_path.read_text(encoding="utf-8-sig").split("\n")[0].strip() or terminal_id
+            except Exception:
+                pass
+            # has_data: verifica presenza di CSV in MQL5/Files/journal/trades/
+            trades_dir = sub / "MQL5" / "Files" / "journal" / "trades"
+            has_data = False
+            try:
+                if trades_dir.exists():
+                    has_data = any(trades_dir.glob("*.csv"))
+            except Exception:
+                pass
+            # running: cerca terminal64.exe con path contenente terminal_id
+            running = False
+            try:
+                res = subprocess.run(
+                    ["wmic", "process", "where",
+                     f"ExecutablePath like '%{terminal_id}%'",
+                     "get", "ProcessId"],
+                    capture_output=True, text=True, timeout=8, check=False,
+                )
+                # Se c'è almeno un PID numerico nell'output, il processo gira
+                lines = [l.strip() for l in (res.stdout or "").splitlines() if l.strip().isdigit()]
+                running = len(lines) > 0
+            except Exception:
+                pass
+            results.append({
+                "terminal_id": terminal_id,
+                "broker_name": broker_name,
+                "running": running,
+                "has_data": has_data,
+                "origin_path": str(sub / "origin.txt"),
+            })
+        return results
 
     # ── journal / channels ───────────────────────────────────────────────
 

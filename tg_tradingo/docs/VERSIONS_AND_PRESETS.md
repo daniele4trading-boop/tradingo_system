@@ -16,13 +16,32 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.28** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.28** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
-| EA MT4 | **1.14** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
+| Bridge Python | **2.29** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.30** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**MT5 2.30 (bridge 2.29 invariato):** regole prop Agorà. (1) Guard DD giornaliero
+`InpDdDailyPct`: riferimento = max(saldo, equity) al reset delle `InpDdDailyResetHourNY`
+(17:00 New York, ora legale USA gestita), salvato in GlobalVariable `TG_TRADINGO_DDD_*` così
+sopravvive ai riavvii nello stesso giorno. Sotto `InpDdDailyBlockNewAtPct` % del limite blocca
+i nuovi ingressi, sotto `InpDdDailyCloseAtPct` % chiude tutte le posizioni TG
+(`KILLSWITCH_DAILY_DD`) e blocca fino al reset successivo (non serve reset manuale).
+(2) `InpDdTrailEod`: a ogni reset il riferimento del DD massimo sale al max(saldo, equity) se
+più alto (floor trailing di fine giornata). Con 0 / false tutto come 2.29.
+
+**2.29 / MT5 2.29 / MT4 1.15:** casi IVAN del 02/10. (1) EA: il guard off-market
+(`InpMaxLevelDeviationPct` / `max_level_deviation_pct`) controlla solo entry e SL, non più
+il TP: `SELL 4199 TP4 4110` (2,1 % dal prezzo) aveva annullato la sola T4 su tutti i conti
+(`CANCELLED_OFF_MARKET`) mentre T1-T3 aprivano; un TP lontano non impedisce l'apertura, il
+canale lo corregge se sbagliato. (2) Bridge: rientro negato ignorato — "Ci stava rientrare
+da sopra ma **non me la sono sentita**" era diventato un `OPEN` a mercato (bloccato dall'EA
+solo per il drift 77 %). Una negazione che precede il verbo di rientro nella stessa frase
+(non/no/mai/neanche/senza) o una rinuncia esplicita ("non me la sento", "niente rientro",
+"lasciamo stare", "non ne vale") viene trattata come non operativa.
 
 **2.28 / MT5 2.28 / MT4 1.14:** BE al livello più protettivo tra fill ed entry del
 segnale (`BeTargetForPosition`/`BeTargetForOrder`): fill migliore → BE al fill (log
@@ -32,6 +51,13 @@ canale ("Mettiamo BE x free risk", "Spostiamo stop a BE", "Portiamo lo stop a BE
 "Siamo free risk"), solo con verbo coniugato: "se spostare a BE", "riuscito a mettere BE"
 e gli annunci per dopo ("Come tocca TP 1 mettiamo stop a BE", "quando/appena") non
 emettono `CHECK_AND_BE`. Il 17/09 "Mettiamo BE x free risk" non era stato riconosciuto.
+
+**2.31 / MT5 2.31:** canali `CH_HYBRIDGOLD` (Hybrid | Setup Gold, magic 15000,
+`signal_ch_hybridgold.json`, tag `HG`) e `CH_HYBRIDFX` (Hybrid | Setup Forex, magic 16000,
+`signal_ch_hybridfx.json`, tag `HF`), parser `hybrid`. Input `InpLotHybridGold`/`InpLotHybridFx`,
+`InpDdFloatHybridGold`/`InpDdFloatHybridFx`. La gestione (anticipo TP, SL spostato, stop preso,
+chiusura) arriva come reply al segnale: il bridge passa `reply_to_msg_id` al parser. Le analisi dei
+canali non generano segnali. Solo Vantage: `InpChannels=gold,forex,stark,ivan,ivanbtc,hybridgold,hybridfx`.
 
 **2.27 / MT5 2.27:** canale `CH_IVANBTC` (IvanTrades - BTC, magic 18000,
 `signal_ch_ivanbtc.json`, parser `ivan_btc`). Opera SOLO su BTCUSD/XAGUSD con stato per
@@ -199,8 +225,9 @@ Tutti in `tg_tradingo/mql5/presets/`, si caricano da `Inputs → Load` sul chart
 
 | Preset | Conto | Guard DD | Sizing serbatoio | Canali | Note |
 |---|---|---|---|---|---|
-| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Contabo) | off | off | tutti e 5 | conto "misura i canali": nessun guard altera i risultati |
+| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Gamehosting) | off | off | gold, forex, stark, ivan, ivanbtc | conto "misura i canali": riceve tutti i canali attivi, nessun guard altera i risultati. ORO VIP dismesso (10/2026) |
 | `TG_TradinGo_Ultima_iFunds_Demo.set` | Ultima demo (Gamehosting) | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | prova delle regole iFunds; `InpMagicOffset=0` per non perdere le posizioni già aperte |
+| `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 3%, chiusura 3,5%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.01 | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
 | `TG_TradinGo_iFunds_10k_dd6.set` | iFunds 10k reale | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | `InpMagicOffset=500000` |
 | `TG_TradinGo_iFunds_50k_dd6.set` | iFunds 50k reale | 6%, start 50.000 → floor 47.000 | on, cap 0,25 | ivan, stark | scalata dopo il 10k |
 | `TG_TradinGo_Reale_Personale.set` | conti reali personali | 10%, equity catturata al primo attach | off | ivan, stark (da scegliere) | template: lotti, suffisso simbolo e % vanno adattati al broker |
@@ -219,8 +246,10 @@ Dettaglio delle regole iFunds e procedure di test dei guard: [`IFUNDS_SETUP.md`]
 
 | Macchina | Componente | Preset |
 |---|---|---|
-| Contabo `144.91.76.28` | bridge Python + terminale Vantage demo | `TG_TradinGo_Vantage_Demo.set` |
-| Gamehosting `100.74.9.8` | terminale Ultima demo | `TG_TradinGo_Ultima_iFunds_Demo.set` |
+| Gamehosting `100.74.9.8` | bridge Python + terminale Vantage demo | `TG_TradinGo_Vantage_Demo.set` |
+| Gamehosting `100.74.9.8` | terminale Xlence reale (solo IVAN) | `TG_TradinGo_Xlence_Reale_IVAN.set` |
+| Gamehosting `100.74.9.8` | terminale Axi reale (solo IVAN) | `TG_TradinGo_Axi_Reale_IVAN.set` |
+| Contabo `144.91.76.28` | offline da 10/2026: bridge e task MT5 devono restare disabilitati | — |
 
 Il deploy non è automatico: `C:\StatArb\scripts\deploy_tg_tradingo_to_vps.ps1` per il bridge,
 copia manuale del `.mq5` + compilazione in MetaEditor per l'EA.

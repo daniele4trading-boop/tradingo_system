@@ -34,6 +34,7 @@ _BASE_DIR = _PKG_DIR.parent
 if str(_BASE_DIR) not in sys.path:
     sys.path.insert(0, str(_BASE_DIR))
 
+from webapp.admin_mgr import AdminManager  # noqa: E402
 from webapp.auth import RateLimiter, SessionManager, verify_password  # noqa: E402
 from webapp.collector import Collector  # noqa: E402
 
@@ -78,6 +79,7 @@ limiter = RateLimiter(
     window_sec=int(CONFIG.get("login_lockout_minutes", 15)) * 60,
 )
 collector = Collector(CONFIG)
+admin_mgr = AdminManager(Path(_BASE_DIR) / "webapp_admin_data.json")
 
 
 def _is_https(request: Request) -> bool:
@@ -132,6 +134,14 @@ app.mount("/static", StaticFiles(directory=str(_PKG_DIR / "static")), name="stat
 
 def current_user(request: Request) -> str | None:
     return sessions.verify(request.cookies.get(COOKIE_NAME))
+
+
+def require_admin(request: Request) -> str | None:
+    user = current_user(request)
+    admin_users = CONFIG.get("admin_users", ["daniele"])
+    if user and user.lower() in [u.lower() for u in admin_users]:
+        return user
+    return None
 
 
 @app.get("/")
@@ -234,6 +244,70 @@ def api_order(request: Request):
             {"error": "ordini disabilitati (fase 3 non attiva)"}, status_code=403
         )
     return JSONResponse({"error": "non implementato"}, status_code=501)
+
+
+@app.get("/admin")
+def admin_page(request: Request):
+    if not require_admin(request):
+        return RedirectResponse("/login", status_code=302)
+    return FileResponse(_PKG_DIR / "static" / "admin.html")
+
+
+@app.get("/api/admin/status")
+def api_admin_status(request: Request):
+    if not require_admin(request):
+        return JSONResponse({"error": "non autorizzato"}, status_code=403)
+    snap = collector.snapshot()
+    return JSONResponse({
+        "mt5_terminals": snap.get("mt5_terminals", []),
+        "alerts": snap.get("alerts", []),
+        "accounts_cfg": admin_mgr.get_accounts(),
+        "costs": admin_mgr.get_costs(),
+        "withdrawals": admin_mgr.get_withdrawals(),
+    })
+
+
+@app.post("/api/admin/account")
+async def api_admin_account(request: Request):
+    if not require_admin(request):
+        return JSONResponse({"error": "non autorizzato"}, status_code=403)
+    body = await request.json()
+    admin_mgr.set_account(body.get("terminal_id"), body)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/admin/cost")
+async def api_admin_cost(request: Request):
+    if not require_admin(request):
+        return JSONResponse({"error": "non autorizzato"}, status_code=403)
+    body = await request.json()
+    admin_mgr.add_cost(body)
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/api/admin/cost/{cost_id}")
+def api_admin_cost_delete(request: Request, cost_id: str):
+    if not require_admin(request):
+        return JSONResponse({"error": "non autorizzato"}, status_code=403)
+    admin_mgr.delete_cost(cost_id)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/admin/withdrawal")
+async def api_admin_withdrawal(request: Request):
+    if not require_admin(request):
+        return JSONResponse({"error": "non autorizzato"}, status_code=403)
+    body = await request.json()
+    admin_mgr.add_withdrawal(body)
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/api/admin/withdrawal/{w_id}")
+def api_admin_withdrawal_delete(request: Request, w_id: str):
+    if not require_admin(request):
+        return JSONResponse({"error": "non autorizzato"}, status_code=403)
+    admin_mgr.delete_withdrawal(w_id)
+    return JSONResponse({"ok": True})
 
 
 def main() -> None:
