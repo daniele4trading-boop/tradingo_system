@@ -34,7 +34,7 @@ function esc(s) {
 }
 
 function renderLights(lights) {
-  const order = ["bridge", "mt5_local", "friend_link", "friend_heartbeat"];
+  const order = ["bridge", "mt5_local"];
   const html = order
     .filter((k) => lights[k])
     .map((k) => {
@@ -137,12 +137,26 @@ function renderAccounts(accounts) {
   $("accounts").innerHTML = html || '<div class="card">Nessun conto configurato</div>';
 }
 
+function fmtPips(v) {
+  const n = Number(v || 0);
+  return (n > 0 ? "+" : "") + n.toFixed(0) + " pips";
+}
+
+function channelRankValue(ch) {
+  const p30 = (ch.pnl && ch.pnl.d30) || {};
+  return Number(p30.pnl_norm || 0);
+}
+
 function renderChannels(channels) {
   const html = (channels || [])
-    .map((ch) => {
+    .filter((ch) => ch.enabled !== false)
+    .slice()
+    .sort((a, b) => channelRankValue(b) - channelRankValue(a))
+    .map((ch, i) => {
       const t = ch.today || {};
-      const p = (ch.pnl && ch.pnl.today) || { pnl: 0, trades: 0, win_rate: null };
-      const p7 = (ch.pnl && ch.pnl.d7) || { pnl: 0, trades: 0 };
+      const p = (ch.pnl && ch.pnl.today) || { pnl: 0, pnl_norm: 0, pips: 0, signals: 0 };
+      const p7 = (ch.pnl && ch.pnl.d7) || { pnl: 0, pnl_norm: 0, pips: 0 };
+      const p30 = (ch.pnl && ch.pnl.d30) || { pnl: 0, pnl_norm: 0, pips: 0, signals: 0, signal_win_rate: null };
       const ex = ch.exec || { executed: 0, cancelled: 0 };
       const last = ch.last_emitted || ch.last_event;
       const lastHtml = last
@@ -152,27 +166,31 @@ function renderChannels(channels) {
              ${esc(last.outcome || "")}<br>${esc(last.raw_text || "")}
            </div>`
         : `<div class="lastmsg">Nessun evento bridge oggi</div>`;
-      return `<div class="card channel-card">
+      return `<div class="card channel-card clickable" onclick="loadChannel('${esc(ch.id)}', 30)">
         <div class="head">
-          <span class="name ${ch.enabled ? "" : "disabled"}">${esc(ch.name)}</span>
+          <span class="name">#${i + 1} ${esc(ch.name)}</span>
           <span class="badge">${esc(ch.id)}</span>
         </div>
         <div class="pnl-row">
-          <span class="pnl-big ${pnlClass(p.pnl)}">${fmtMoney(p.pnl)}</span>
-          <span class="pnl-meta">oggi · ${p.trades || 0} chiusi
-            ${p.win_rate != null ? " · WR " + p.win_rate + "%" : ""}</span>
+          <span class="pnl-big ${pnlClass(p30.pnl_norm)}">${fmtMoney(p30.pnl_norm)}</span>
+          <span class="pnl-meta">30g a 0.01 lotti · ${p30.signals || 0} segnali
+            ${p30.signal_win_rate != null ? " · WR " + p30.signal_win_rate + "%" : ""}
+            · ${fmtPips(p30.pips)}</span>
         </div>
         <div class="counts">
-          <span>7g <b class="${pnlClass(p7.pnl)}">${fmtMoney(p7.pnl)}</b></span>
-          <span class="em">Segnali <b>${t.emitted ?? 0}</b></span>
+          <span>Oggi <b class="${pnlClass(p.pnl_norm)}">${fmtMoney(p.pnl_norm)}</b></span>
+          <span>7g <b class="${pnlClass(p7.pnl_norm)}">${fmtMoney(p7.pnl_norm)}</b></span>
+          <span class="raw">Reale 30g <b class="${pnlClass(p30.pnl)}">${fmtMoney(p30.pnl)}</b></span>
+        </div>
+        <div class="counts">
+          <span class="em">Segnali oggi <b>${t.emitted ?? 0}</b></span>
           <span>Eseguiti <b>${ex.executed ?? 0}</b></span>
-          <span class="er">Annullati <b>${ex.cancelled ?? 0}</b></span>
         </div>
         ${lastHtml}
       </div>`;
     })
     .join("");
-  $("channels").innerHTML = html || '<div class="card">Nessun canale configurato</div>';
+  $("channels").innerHTML = html || '<div class="card">Nessun canale attivo</div>';
 }
 
 function renderOpens(accounts) {
@@ -216,10 +234,6 @@ function renderEvents(events) {
 async function refresh() {
   try {
     const res = await fetch("/api/status", { cache: "no-store" });
-    if (res.status === 401) {
-      location.href = "/login";
-      return;
-    }
     const data = await res.json();
     $("overall").className = `overall-dot dot ${data.overall || "off"}`;
     $("updated").textContent = "agg. " + fmtTs(data.generated_utc);
@@ -235,6 +249,68 @@ async function refresh() {
   } catch (err) {
     $("updated").textContent = "offline?";
     $("overall").className = "overall-dot dot crit";
+  }
+}
+
+let _currentChannelId = null;
+
+async function loadChannel(channelId, days) {
+  if (channelId) _currentChannelId = channelId;
+  if (!_currentChannelId) return;
+  days = days || 30;
+  const modal = $("ch-modal");
+  const title = $("ch-modal-title");
+  const summary = $("ch-modal-summary");
+  const tbody = $("ch-modal-table").querySelector("tbody");
+  // Aggiorna pulsanti periodo attivi
+  modal.querySelectorAll(".modal-period button").forEach((btn) => {
+    btn.classList.toggle("active", btn.textContent.startsWith(String(days)));
+  });
+  title.textContent = _currentChannelId.replace("CH_", "") + " — ultimi " + days + "g";
+  modal.style.display = "flex";
+  tbody.innerHTML = '<tr><td colspan="9" class="raw">Caricamento…</td></tr>';
+  summary.textContent = "";
+  try {
+    const res = await fetch(`/api/channel/${encodeURIComponent(_currentChannelId)}?days=${days}`, { cache: "no-store" });
+    const data = await res.json();
+    const trades = data.trades || [];
+    if (!trades.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="raw">Nessuna trade nel periodo</td></tr>';
+      summary.textContent = "";
+      return;
+    }
+    const totalPnl = trades.reduce((s, t) => s + Number(t.profit_usd || 0), 0);
+    const totalNorm = trades.reduce((s, t) => s + Number(t.pnl_norm || 0), 0);
+    const bySignal = {};
+    trades.forEach((t) => {
+      const k = t.signal_id || t.ts_utc;
+      bySignal[k] = (bySignal[k] || 0) + Number(t.profit_usd || 0);
+    });
+    const sigs = Object.values(bySignal);
+    const wins = sigs.filter((v) => v > 0).length;
+    summary.innerHTML = `<span>Segnali: <b>${sigs.length}</b> (${trades.length} TP)</span>
+      <span>P&amp;L a 0.01: <b class="${pnlClass(totalNorm)}">${fmtMoney(totalNorm)}</b></span>
+      <span>Reale: <b class="${pnlClass(totalPnl)}">${fmtMoney(totalPnl)}</b></span>
+      <span>Win rate: <b>${sigs.length ? Math.round((wins / sigs.length) * 100) : 0}%</b></span>`;
+    tbody.innerHTML = trades.map((t) => `<tr>
+      <td class="ts">${fmtTs(t.ts_utc)}</td>
+      <td>${esc(t.symbol || "")}</td>
+      <td class="${(t.direction||"").toLowerCase() === "buy" ? "pos" : "neg"}">${esc(t.direction || "")}</td>
+      <td>${esc(String(t.volume ?? ""))}</td>
+      <td class="${pnlClass(Number(t.pips))}">${fmtPips(t.pips)}</td>
+      <td class="${pnlClass(Number(t.pnl_norm))}">${fmtMoney(Number(t.pnl_norm))}</td>
+      <td class="${pnlClass(Number(t.profit_usd))} raw">${fmtMoney(Number(t.profit_usd))}</td>
+      <td class="raw">${esc(t.close_reason || "")}</td>
+      <td class="raw">${esc(t.account || "")}</td>
+    </tr>`).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="9" class="raw">Errore: ${esc(String(e))}</td></tr>`;
+  }
+}
+
+function closeModal(event) {
+  if (event.target === $("ch-modal")) {
+    $("ch-modal").style.display = "none";
   }
 }
 
