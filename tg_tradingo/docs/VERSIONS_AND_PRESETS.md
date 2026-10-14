@@ -16,13 +16,26 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.29** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.29** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| Bridge Python | **2.30** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.30** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**2.30 / MT5 2.30:** casi IVAN dell'8-12/10. Bridge: (1) "mettiamo a BE le entrate più
+brutte" / "chiudere a BE le entry più alte" → `CHECK_AND_BE` con `scope`
+(WORST/BEST/HIGHEST/LOWEST), SL al fill sulle gambe indicate, non più `CLOSE_SELECTIVE` a
+mercato; "lasciamo normali con SL quelle più alte" non è una chiusura. (2) Setup completo che
+si dichiara rientro ("SELL 4171 … Reentry, si") → `OPEN` con `allow_stack=true` (nuovo
+blocco, "piccole size" → `lot_factor=0.5`); l'EDIT dello stesso rientro non stacka due volte.
+(3) "CHIUDIAMO ORA LA REENTRY SOLO" / "chiudo il rientro" → `CLOSE_SELECTIVE
+keep=ALL_BUT_NEWEST` (prima `CLOSE_ALL_SYMBOL`: chiuse le 4 posizioni base). EA: (4)
+`CHECK_AND_BE scope`; (5) `UPDATE_OPEN` non riapre una gamba già chiusa (TP/SL/BE) dello
+stesso `signal_id` (storico deal, `InpUpdateFillHistoryHours`); (6) coda BE ritentata ogni
+`InpBePendingRetrySec` (5 s) senza ripetere i log; (7) `InpBeMode=BE_SIGNAL_ENTRY`: BE alla
+entry del canale anche se peggiore del fill, entro `InpBeSignalEntryMaxLoss` (5 $/oz).
 
 **2.29 / MT5 2.29 / MT4 1.15:** casi IVAN del 02/10. (1) EA: il guard off-market
 (`InpMaxLevelDeviationPct` / `max_level_deviation_pct`) controlla solo entry e SL, non più

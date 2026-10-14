@@ -38,6 +38,7 @@ from bridge_core import (
     match_move_sl_price,
     match_move_tp_price,
     match_partial_close_intent,
+    match_selective_be_intent,
     match_selective_close_intent,
     salvage_incoherent_entry_range,
     payload_for_ea,
@@ -66,7 +67,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.29"
+BRIDGE_VERSION = "2.30"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -2317,6 +2318,25 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         log.debug(f"[IVAN] Ignorato ({pat}): {raw[:60]}")
         return None
 
+    # "Mettiamo a BE le entrate più brutte" / "chiudere a BE le entry più alte"
+    # (08-09/10): il canale protegge a pareggio solo un gruppo di entry. Prima
+    # diventava CLOSE_SELECTIVE e chiudeva a mercato in perdita.
+    be_scope = match_selective_be_intent(upper) if not has_setup else None
+    if be_scope is not None:
+        be_price = _ivan_setup_entry(state.ivan_last_trade)
+        log.info(f"[IVAN] CHECK_AND_BE scope={be_scope} be_price={be_price}: {raw[:60]}")
+        signal = {
+            "action":      "CHECK_AND_BE",
+            "symbol":      "XAUUSD",
+            "tp_index":    1,
+            "scope":       be_scope,
+            "magic_base":  ch["magic_base"],
+            "raw_message": raw,
+        }
+        if be_price is not None:
+            signal["be_price"] = be_price
+        return signal
+
     # Un ordine di chiusura che nomina il rientro ("chiudo la rientry") non deve
     # passare dal ramo di apertura: il verbo di chiusura ha la precedenza.
     close_first = (
@@ -2529,8 +2549,22 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         r"(?:META|MEZZA|HALF)\s*(?:SIZE|SAZIE)",
         folded,
     ) else 1.0
+    # "XAUUSD SELL 4171 … Reentry, si" (12/10): un setup completo che si
+    # dichiara rientro è una posizione in più sul setup aperto. Senza
+    # allow_stack l'EA lo trattava come modifica SL/TP del primo setup
+    # (SL peggiorato, rientro mai aperto). "Piccole size" dimezza il lotto.
+    # EDIT dello stesso messaggio di rientro: niente secondo stack (coerce →
+    # UPDATE_OPEN).
+    is_stack = bool(
+        state.ivan_last_trade
+        and _is_reentry_intent(upper)
+        and not _negation_precedes_reentry(folded)
+        and not _ivan_reentry_is_repeat(state.ivan_last_trade, entry)
+    )
+    if is_stack and lot_factor == 1.0:
+        lot_factor = _reduced_size_factor(upper) or 1.0
     log.info(
-        f"[IVAN] OPEN {direction} {symbol} "
+        f"[IVAN] OPEN{' (rientro, stack)' if is_stack else ''} {direction} {symbol} "
         f"{'range=' + str(entry_range) if entry_range else '@ ' + str(entry)} "
         f"TP={tps} SL={sl} lot_factor={lot_factor}"
     )
@@ -2545,6 +2579,8 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         "magic_base":  ch["magic_base"],
         "raw_message": raw,
     }
+    if is_stack:
+        signal["allow_stack"] = True
     if lot_factor != 1.0:
         signal["lot_factor"] = lot_factor
     state.set_ivan_last_trade({**signal, "setup_entry": _ivan_entry_ref(signal)})
