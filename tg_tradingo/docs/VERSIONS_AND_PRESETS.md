@@ -16,13 +16,23 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.28** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.28** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
-| EA MT4 | **1.14** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
+| Bridge Python | **2.29** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.29** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**2.29 / MT5 2.29 / MT4 1.15:** casi IVAN del 02/10. (1) EA: il guard off-market
+(`InpMaxLevelDeviationPct` / `max_level_deviation_pct`) controlla solo entry e SL, non più
+il TP: `SELL 4199 TP4 4110` (2,1 % dal prezzo) aveva annullato la sola T4 su tutti i conti
+(`CANCELLED_OFF_MARKET`) mentre T1-T3 aprivano; un TP lontano non impedisce l'apertura, il
+canale lo corregge se sbagliato. (2) Bridge: rientro negato ignorato — "Ci stava rientrare
+da sopra ma **non me la sono sentita**" era diventato un `OPEN` a mercato (bloccato dall'EA
+solo per il drift 77 %). Una negazione che precede il verbo di rientro nella stessa frase
+(non/no/mai/neanche/senza) o una rinuncia esplicita ("non me la sento", "niente rientro",
+"lasciamo stare", "non ne vale") viene trattata come non operativa.
 
 **2.28 / MT5 2.28 / MT4 1.14:** BE al livello più protettivo tra fill ed entry del
 segnale (`BeTargetForPosition`/`BeTargetForOrder`): fill migliore → BE al fill (log

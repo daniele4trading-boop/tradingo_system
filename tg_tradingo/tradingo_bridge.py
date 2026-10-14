@@ -66,7 +66,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.28"
+BRIDGE_VERSION = "2.29"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -1549,6 +1549,33 @@ _REENTRY_WISH = (
 )
 
 
+# Rientro negato: "Ci stava rientrare da sopra ma non me la sono sentita"
+# (02/10) era diventato un OPEN a mercato. Una negazione che precede il verbo
+# di rientro, o una rinuncia esplicita, annulla l'ordine ovunque compaia.
+_REENTRY_NEGATED = (
+    r"\bNON\s+(?:ME\s+LA\s+)?(?:SONO\s+|HO\s+|MI\s+)?SENT\w+\b|"
+    r"\bNON\s+(?:LO\s+|LA\s+|CI\s+|VI\s+)?(?:FACCIO|FAREI|FAREMO|RIFACCIO)\b|"
+    r"\bNIENTE\s+(?:RIENTR\w*|RE[- ]?ENTR\w*)\b|\bNESSUN\s+RIENTR\w*\b|"
+    r"\bLASCI(?:O|AMO)\s+(?:STARE|PERDERE)\b|\bNON\s+NE\s+VALE\b"
+)
+_REENTRY_NEGATION_WORDS = r"\bNON\b|\bNO\b|\bMAI\b|\bNEANCHE\b|\bNEMMENO\b|\bSENZA\b"
+
+
+def _negation_precedes_reentry(folded: str) -> bool:
+    """True se "non"/"mai"/… precede il verbo di rientro nella stessa frase."""
+    m_verb = re.search(_REENTRY_VERB, folded)
+    if not m_verb:
+        return False
+    for clause in re.split(r"[.!?;\n]", folded):
+        if not re.search(_REENTRY_VERB, clause):
+            continue
+        m_neg = re.search(_REENTRY_NEGATION_WORDS, clause)
+        m_v = re.search(_REENTRY_VERB, clause)
+        if m_neg and m_v and m_neg.start() < m_v.start():
+            return True
+    return False
+
+
 # Racconto di un rientro già fatto ("abbiamo preso ieri sera una super
 # Reentry"): passato o riferimento temporale passato, non un ordine.
 _REENTRY_PAST = (
@@ -1585,6 +1612,8 @@ def _is_deferred_reentry(upper: str) -> bool:
     esplicito ("ora", "da qui", "a mercato") ha comunque la precedenza.
     """
     folded = fold_accents(upper)
+    if re.search(_REENTRY_NEGATED, folded) or _negation_precedes_reentry(folded):
+        return True
     if re.search(_REENTRY_NOT_YET, folded):
         return True
     if re.search(_REENTRY_PAST, folded):
