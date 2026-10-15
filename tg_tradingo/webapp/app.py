@@ -146,8 +146,6 @@ def require_admin(request: Request) -> str | None:
 
 @app.get("/")
 def index(request: Request):
-    if not current_user(request):
-        return RedirectResponse("/login", status_code=302)
     return FileResponse(_PKG_DIR / "static" / "index.html")
 
 
@@ -214,7 +212,7 @@ def login(request: Request, username: str = Form(""), password: str = Form(""), 
 
 @app.get("/logout")
 def logout(request: Request):
-    resp = RedirectResponse("/login", status_code=302)
+    resp = RedirectResponse("/", status_code=302)
     resp.delete_cookie(
         COOKIE_NAME,
         path="/",
@@ -225,11 +223,8 @@ def logout(request: Request):
 
 @app.get("/api/status")
 def api_status(request: Request):
-    user = current_user(request)
-    if not user:
-        return JSONResponse({"error": "non autenticato"}, status_code=401)
     snap = collector.snapshot()
-    snap["user"] = user
+    snap["user"] = current_user(request)
     return JSONResponse(snap)
 
 
@@ -308,6 +303,12 @@ def api_admin_withdrawal_delete(request: Request, w_id: str):
         return JSONResponse({"error": "non autorizzato"}, status_code=403)
     admin_mgr.delete_withdrawal(w_id)
     return JSONResponse({"ok": True})
+
+
+@app.get("/api/channel/{channel_id}")
+def api_channel_detail(channel_id: str, days: int = 30):
+    trades = collector.channel_trades(channel_id.upper(), min(max(days, 1), 365))
+    return JSONResponse({"channel_id": channel_id, "days": days, "trades": trades})
 
 
 def main() -> None:
