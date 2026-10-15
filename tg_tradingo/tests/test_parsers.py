@@ -2720,3 +2720,43 @@ class TestPayloadForEaFrom0831:
         payload = payload_for_ea(sig)
         assert payload == {"action": "OPEN", "sl": 4442.0, "tp_levels": [4425.0],
                            "levels_only": False, "trades": 0}
+
+
+class TestIvanTpNonNumerico:
+    """14/10: 'TP4: swing' diventava TP=4.0 e il setup veniva scartato."""
+
+    def test_tp4_swing_calcolato_tp3_piu_300_pips(self, bridge_state):
+        sig = parser_ivan_vip(
+            "XAUUSD BUY 4145\n\nTP1: 4156\nTP2: 4160\nTP3: 4164\nTP4: swing \n\nSL: 4135",
+            CH_IVAN,
+            bridge_state,
+        )
+        assert sig is not None and sig["action"] == "OPEN"
+        assert sig["tp_levels"] == [4156.0, 4160.0, 4164.0, 4194.0]
+        assert sig["sl"] == 4135.0
+
+    def test_tp_intermedio_interpolato(self, bridge_state):
+        sig = parser_ivan_vip(
+            "XAUUSD SELL 4090 | TP1: 4085 | TP2: open | TP3: 4078 | TP4: swing | SL: 4100",
+            CH_IVAN,
+            bridge_state,
+        )
+        assert sig["tp_levels"] == [4085.0, 4081.5, 4078.0, 4048.0]
+
+    def test_primo_tp_mancante_a_meta_tra_entry_e_successivo(self, bridge_state):
+        sig = parser_ivan_vip(
+            "XAUUSD BUY 4090 | TP1: ? | TP2: 4098 | SL: 4078", CH_IVAN, bridge_state
+        )
+        assert sig["tp_levels"] == [4094.0, 4098.0]
+
+    def test_tp_multiriga_con_indice_separato_invariato(self, bridge_state):
+        sig = parser_ivan_vip(
+            "XAUUSD SELL 4054\nTP 1 4050\nTP 2 4045\nSL @ 4066", CH_IVAN, bridge_state
+        )
+        assert sig["tp_levels"] == [4050.0, 4045.0]
+
+    def test_aspettiamo_ora_prima_di_rientrare_non_apre(self, bridge_state):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        assert parser_ivan_vip(
+            "Aspettiamo ora prima di rientrare", CH_IVAN, bridge_state
+        ) is None
