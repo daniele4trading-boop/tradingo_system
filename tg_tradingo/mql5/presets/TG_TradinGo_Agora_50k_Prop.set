@@ -1,0 +1,72 @@
+; TG TradinGo EA 2.30 - Agora Funds 50k (Mixed) sul terminale Ultima, server BlueChipBroker-Server
+; Regole Agora: DD giornaliero 4% da max(saldo,equity) al reset 17:00 New York; DD massimo 6% trailing sul massimo di fine giornata.
+; Margini: giornaliero blocca nuovi a 3% e chiude tutto a 3.5% (scelta Daniele); massimo blocca a 3% e chiude a 4.2% (70% di 3000).
+; Solo IVAN a 0.01 per posizione (4 TP = 0.04). TITANY gira sullo stesso conto: l'equity include le sue posizioni, i guard chiudono solo le posizioni TG.
+;   - InpMagicOffset=0  (con 500000 l'EA perderebbe di vista le posizioni gia' aperte)
+;   - InpMaxFloatingLossUSD=0  (killswitch flottante spento su entrambi i demo)
+; Regole simulate: equity di partenza 10.000 -> floor 9.400 (DD 6% statico)
+;   chiusura totale + halt a 9.520 | sotto 9.640 recovery a 0.01 per posizione
+;   sizing dal serbatoio (util 15%, scatti 10%, cap 0.10 per posizione)
+; Path segnali: junction MQL5\Files\tradingo -> cartella segnali del bridge
+; Richiede EA v2.13+
+; Carica da: Inputs EA -> Load -> questo file
+
+InpSignalsPath=tradingo\
+InpUseAbsolutePath=false
+InpChannels=ivan
+InpSymbolSuffix=.ago
+InpLotMultiplier=1.0
+InpAddLotFactor=0.5
+InpLotIvan=0.01
+InpLotStark=0.0
+InpLotGold=0.0
+InpLotOro=0.0
+InpLotForex=0.0
+InpTagIvan=IT
+InpTagStark=AS
+InpTagGold=
+InpTagOro=
+InpTagForex=
+InpCommentUseTgPrefix=false
+InpMaxSlippagePoints=50
+InpPollMs=500
+InpRangeTolerancePoints=200
+InpOroRangeTolerancePoints=250
+InpLogCancelledSignals=true
+InpClearSignalAfterProcess=true
+InpIgnoreExistingOnInit=true
+InpStackOpensIfFlatBusy=true
+InpStopBufferPoints=20
+InpReentryMaxDriftPctOfSl=40.0
+InpAutoBreakEvenOnTp1=true
+InpMagicOffset=0
+InpMaxFloatingLossUSD=0.0
+InpKillSwitchCooldownMin=0
+InpMaxHoldingMinutes=0
+InpHeartbeatMaxAgeSec=180
+InpHeartbeatFile=tradingo_heartbeat.json
+InpEquitySampleSec=60
+InpJournalPrefix=journal\\
+InpSingleInstanceLock=true
+InpLockStaleSec=120
+InpDdMaxPct=6.0
+InpDdStartEquity=50000.0
+InpDdCloseAtPct=70.0
+InpDdBlockNewAtPct=50.0
+InpDdRecoveryLot=0.0
+InpHaltFlagFile=tradingo_halt.flag
+InpDdSizingEnabled=false
+InpDdUtilizationPct=15.0
+InpDdStepPct=10.0
+InpDdMaxLot=0.0
+InpDdFloatIvan=39.9
+InpDdFloatStark=10.4
+InpDdFloatGold=15.0
+InpDdFloatOro=12.4
+InpDdFloatForex=20.0
+InpMaxConcurrentLots=0.08
+InpDdDailyPct=4.0
+InpDdDailyCloseAtPct=87.5
+InpDdDailyBlockNewAtPct=75.0
+InpDdDailyResetHourNY=17
+InpDdTrailEod=true
