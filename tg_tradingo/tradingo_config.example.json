@@ -4,14 +4,12 @@
     "api_hash": "INSERISCI_API_HASH_TELEGRAM",
     "session_file": "C:\\TelegramBridge\\telegram_bridge_session.session"
   },
-
   "paths": {
     "base": "C:\\TG_TradinGo",
     "signals": "C:\\TG_TradinGo\\signals",
     "logs": "C:\\TG_TradinGo\\logs",
     "state": "C:\\TG_TradinGo\\state"
   },
-
   "mt5_instances": [
     {
       "name": "TradinGo_Local",
@@ -31,7 +29,6 @@
       "notes": "MT5 iFunds — predisposizione scrittura JSON prima del login conto. Abilita su Contabo."
     }
   ],
-
   "channels": [
     {
       "id": "CH_GOLD",
@@ -43,8 +40,8 @@
       "magic_base": 12000,
       "execution": {
         "mode": "fixed_lot",
-        "fixed_lot_single": 0.20,
-        "fixed_lot_per_tp": 0.10,
+        "fixed_lot_single": 0.2,
+        "fixed_lot_per_tp": 0.1,
         "tp_levels_expected": 2,
         "notes": "2 TP standard (raro 3). OPEN_NOW 1x0.20, OPEN completo 2x0.10."
       }
@@ -59,15 +56,15 @@
       "magic_base": 13000,
       "execution": {
         "mode": "fixed_lot",
-        "fixed_lot_single": 0.20,
-        "fixed_lot_per_tp": 0.10,
+        "fixed_lot_single": 0.2,
+        "fixed_lot_per_tp": 0.1,
         "tp_levels_expected": 1,
         "notes": "1 TP via messaggio Modified. OPEN 1x0.20, poi UPDATE_TP."
       }
     },
     {
       "id": "CH_ORO",
-      "enabled": true,
+      "enabled": false,
       "telegram_id": -1003950995427,
       "name": "Sala ORO VIP",
       "parser": "sala_oro",
@@ -75,10 +72,10 @@
       "magic_base": 14100,
       "execution": {
         "mode": "fixed_lot",
-        "fixed_lot_single": 0.20,
-        "fixed_lot_per_tp": 0.10,
+        "fixed_lot_single": 0.2,
+        "fixed_lot_per_tp": 0.1,
         "tp_levels_expected": 2,
-        "notes": "1 o 2 TP nel messaggio. 1 TP=0.20, 2 TP=2x0.10."
+        "notes": "DISMESSO 10/2026: canale non piu' usato, rimosso dal config di produzione. Parser tenuto per storico e test."
       }
     },
     {
@@ -91,8 +88,8 @@
       "magic_base": 14000,
       "execution": {
         "mode": "fixed_lot",
-        "fixed_lot_single": 0.20,
-        "fixed_lot_per_tp": 0.10,
+        "fixed_lot_single": 0.2,
+        "fixed_lot_per_tp": 0.1,
         "tp_levels_expected": 1,
         "add_lot_factor": 0.5,
         "notes": "Sempre 1 TP nel messaggio. 1 trade x 0.20."
@@ -108,8 +105,8 @@
       "magic_base": 17000,
       "execution": {
         "mode": "fixed_lot",
-        "fixed_lot_single": 0.20,
-        "fixed_lot_per_tp": 0.10,
+        "fixed_lot_single": 0.2,
+        "fixed_lot_per_tp": 0.1,
         "tp_levels_expected": 4,
         "notes": "4 TP standard (4x0.10). Meta size = lot_factor 0.5 (4x0.05)."
       }
@@ -128,8 +125,58 @@
         "fixed_lot_per_tp": 0.01,
         "tp_levels_expected": 1,
         "max_level_deviation_pct": 60,
-        "notes": "Solo BTCUSD/XAGUSD, lotto minimo 0.01 per posizione (4 TP = 4x0.01, XAG TP OPEN = 1x0.01). Stato separato dal VIP oro. Solo Vantage: InpChannels=forex,ivan,ivanbtc."
+        "notes": "Solo BTCUSD/XAGUSD, lotto minimo 0.01 per posizione (4 TP = 4x0.01, XAG TP OPEN = 1x0.01). Stato separato dal VIP oro. Solo Vantage: InpChannels=gold,forex,stark,ivan,ivanbtc."
+      }
+    },
+    {
+      "id": "CH_HYBRIDGOLD",
+      "enabled": false,
+      "telegram_id": -1001969939917,
+      "name": "Hybrid | Setup Gold",
+      "parser": "hybrid",
+      "signal_file": "signal_ch_hybridgold.json",
+      "magic_base": 15000,
+      "execution": {
+        "mode": "fixed_lot",
+        "fixed_lot_single": 0.01,
+        "fixed_lot_per_tp": 0.01,
+        "tp_levels_expected": 2,
+        "notes": "Segnali a mercato XAUUSD (Tp3 open = runner). Gestione via reply al segnale. Solo Vantage."
+      }
+    },
+    {
+      "id": "CH_HYBRIDFX",
+      "enabled": false,
+      "telegram_id": -1002088387580,
+      "name": "Hybrid | Setup Forex",
+      "parser": "hybrid",
+      "signal_file": "signal_ch_hybridfx.json",
+      "magic_base": 16000,
+      "execution": {
+        "mode": "fixed_lot",
+        "fixed_lot_single": 0.01,
+        "fixed_lot_per_tp": 0.01,
+        "tp_levels_expected": 2,
+        "notes": "Segnali a mercato forex multi-pair. Gestione via reply al segnale. Solo Vantage."
+      }
+    },
+    {
+      "id": "CH_SERTORIO",
+      "enabled": false,
+      "telegram_id": -1003871039877,
+      "name": "Matteo Sertorio - Canale pubblico",
+      "parser": "placeholder",
+      "signal_file": "signal_ch_sertorio.json",
+      "magic_base": null,
+      "execution": {
+        "notes": "Solo analisi: nessun segnale, livelli per TG_TradinGoLevels."
       }
     }
-  ]
+  ],
+  "levels": {
+    "enabled": false,
+    "output_files": [
+      "C:\\Users\\Administrator\\AppData\\Roaming\\MetaQuotes\\Terminal\\Common\\Files\\tradingo\\tradingo_levels.csv"
+    ]
+  }
 }

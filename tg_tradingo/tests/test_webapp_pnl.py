@@ -10,6 +10,7 @@ if str(TG_ROOT) not in sys.path:
     sys.path.insert(0, str(TG_ROOT))
 
 from webapp.pnl import (
+    build_magic_map,
     build_phase2,
     exec_stats,
     normalize_channel,
@@ -143,3 +144,90 @@ class TestBuildPhase2:
         assert out["equity"]["latest"]["equity"] == 9975.0
         # OPEN then CLOSE on same ticket → no open positions
         assert out["open_positions"] == []
+
+
+class TestMagicMap:
+    CHANNELS = [
+        {"id": "CH_GOLD", "magic_base": 12000},
+        {"id": "CH_FOREX", "magic_base": 13000},
+        {"id": "CH_STARK", "magic_base": 14000},
+        {"id": "CH_IVAN", "magic_base": 17000},
+        {"id": "CH_IVANBTC", "magic_base": 18000},
+        {"id": "CH_NOMAGIC"},
+    ]
+
+    def test_build_skips_channels_without_magic(self):
+        m = build_magic_map(self.CHANNELS)
+        assert m == {
+            12000: "CH_GOLD",
+            13000: "CH_FOREX",
+            14000: "CH_STARK",
+            17000: "CH_IVAN",
+            18000: "CH_IVANBTC",
+        }
+
+    def test_magic_wins_over_tag(self):
+        m = build_magic_map(self.CHANNELS)
+        # tp_index 1..3 sit on top of magic_base
+        assert normalize_channel("IT", "18003", m) == "CH_IVANBTC"
+        assert normalize_channel("GOLD", 12002, m) == "CH_GOLD"
+        assert normalize_channel("", "14001.0", m) == "CH_STARK"
+
+    def test_unknown_magic_falls_back_to_tag(self):
+        m = build_magic_map(self.CHANNELS)
+        assert normalize_channel("IT", "99001", m) == "CH_IVAN"
+        assert normalize_channel("AS", None, m) == "CH_STARK"
+
+
+class TestNormalizedPnl:
+    """P&L riportato a 0.01 lotti per segnale e pips, per classifica omogenea."""
+
+    @staticmethod
+    def _close(sig, tp, symbol, direction, vol, fill, close, profit, magic):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {
+            "event": "CLOSE", "ts_utc": now, "close_time_utc": now, "signal_id": sig,
+            "tp_index": str(tp), "symbol": symbol, "direction": direction,
+            "volume": str(vol), "fill": str(fill), "close_price": str(close),
+            "realized_profit": str(profit), "magic": str(magic),
+        }
+
+    def test_pip_size_and_pips(self):
+        from webapp.pnl import pip_size, trade_pips
+        assert pip_size("XAUUSD") == 0.1
+        assert pip_size("XAUUSD.ago") == 0.1
+        assert pip_size("GBPJPY") == 0.01
+        assert pip_size("EURUSD") == 0.0001
+        assert pip_size("BTCUSD") == 0.1
+        row = {"symbol": "XAUUSD", "direction": "SELL", "fill": "4176.05", "close_price": "4171.18"}
+        assert round(trade_pips(row), 1) == 48.7
+
+    def test_btc_100k_points_is_10_usd_at_001(self):
+        # 100.000 point BTC (1000 $ di prezzo) = 10.000 pips; a 0.01 lotti = 10 $.
+        rows = [self._close("b1", 1, "BTCUSD", "BUY", 0.01, 60000, 61000, 10.0, 18001)]
+        out = summarize_closed_pnl(rows, [1, 30], {18000: "CH_IVANBTC"})
+        b = out["by_channel"]["CH_IVANBTC"]["d30"]
+        assert b["pips"] == 10000.0
+        assert b["pnl_norm"] == 10.0
+        assert b["signals"] == 1
+
+    def test_multi_tp_signal_normalized_by_total_volume(self):
+        # IVAN: 4 TP da 0.10 (0.40 totali) -> P&L a 0.01 = reale / 40.
+        rows = [
+            self._close("s1", i, "XAUUSD", "SELL", 0.10, 4184.0, 4180.0, 40.0, 17000 + i)
+            for i in range(1, 5)
+        ]
+        rows.append(self._close("s2", 1, "XAUUSD", "SELL", 0.20, 4185.0, 4189.0, -80.0, 14001))
+        mm = {17000: "CH_IVAN", 14000: "CH_STARK"}
+        out = summarize_closed_pnl(rows, [30], mm)
+        ivan = out["by_channel"]["CH_IVAN"]["d30"]
+        stark = out["by_channel"]["CH_STARK"]["d30"]
+        assert ivan["pnl"] == 160.0
+        assert ivan["pnl_norm"] == 4.0
+        assert ivan["pips"] == 40.0
+        assert ivan["trades"] == 4 and ivan["signals"] == 1
+        assert ivan["signal_win_rate"] == 100.0
+        assert stark["pnl_norm"] == -4.0
+        assert stark["pips"] == -40.0
+        assert out["totals"]["d30"]["pnl_norm"] == 0.0
