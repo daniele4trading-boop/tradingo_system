@@ -1255,7 +1255,6 @@ class TestSelectiveClose:
         "text,keep",
         [
             ("Chiudiamo le entry meno premium", "BEST"),
-            ("Chiduamo a be l'entrata meno premium a Be", "BEST"),
             ("Chiduamo orario entry più in basso", "HIGHEST"),
             ("Chiudiamo le posizioni più in alto", "LOWEST"),
             ("E lasciamo solo quelle da sopra", "HIGHEST"),
@@ -1301,6 +1300,47 @@ class TestSelectiveClose:
         sig = parser_ivan_vip(text, CH_IVAN, bridge_state)
         assert sig is None or sig["action"] != "CLOSE_SELECTIVE", text
 
+    @pytest.mark.parametrize(
+        "text,scope",
+        [
+            ("Mettiamo a BE le entrate più brutte", "WORST"),
+            ("Chiduamo a be l'entrata meno premium a Be", "WORST"),
+            ("BE alle entrate più brutte, lasciamo con SL quelle più alte", "WORST"),
+            ("Se torna su, chiudere a BE le entry più alte, lasciare le più basse", "HIGHEST"),
+            ("Mettiamo a BE le entry più basse", "LOWEST"),
+            ("Portiamo a pareggio le posizioni più premium", "BEST"),
+        ],
+    )
+    def test_selective_be_moves_sl_not_close(self, bridge_state, text, scope):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip(text, CH_IVAN, bridge_state)
+        assert sig is not None, text
+        assert sig["action"] == "CHECK_AND_BE", text
+        assert sig["scope"] == scope, text
+        assert sig["be_price"] == 4059.0
+        ok, reason = validate_signal(sig)
+        assert ok, reason
+
+    def test_keep_with_sl_is_not_close(self, bridge_state):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip(
+            "E lasciamo normali con SL quelle più alte", CH_IVAN, bridge_state
+        )
+        assert sig is None or sig["action"] != "CLOSE_SELECTIVE"
+
+    def test_be_all_has_no_scope(self, bridge_state):
+        parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip("Spostiamo SL a BE", CH_IVAN, bridge_state)
+        assert sig["action"] == "CHECK_AND_BE"
+        assert "scope" not in sig
+
+    def test_invalid_scope_rejected_by_validation(self):
+        ok, reason = validate_signal(
+            {"action": "CHECK_AND_BE", "symbol": "XAUUSD", "scope": "MIDDLE", "magic_base": 17000}
+        )
+        assert not ok
+        assert "scope" in reason
+
     def test_invalid_keep_rejected_by_validation(self):
         ok, reason = validate_signal(
             {
@@ -1315,6 +1355,80 @@ class TestSelectiveClose:
 
 
 class TestIvanReentry:
+    REENTRY_SETUP = (
+        "XAUUSD SELL 4171\nTP1: 4158\nTP2: 4155\nTP3: 4152\nTP4: 4145\n"
+        "SL: 4182\nReentry, si"
+    )
+    BASE_SELL = (
+        "XAUUSD SELL 4164\nTP1: 4158\nTP2: 4155\nTP3: 4152\nTP4: 4145\nSL: 4177"
+    )
+
+    def test_full_setup_declared_reentry_stacks(self, bridge_state):
+        parser_ivan_vip(self.BASE_SELL, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip(self.REENTRY_SETUP, CH_IVAN, bridge_state)
+        assert sig["action"] == "OPEN"
+        assert sig["entry"] == 4171.0
+        assert sig["allow_stack"] is True
+        assert "lot_factor" not in sig
+        ok, reason = validate_signal(sig)
+        assert ok, reason
+
+    def test_full_setup_reentry_small_size(self, bridge_state):
+        parser_ivan_vip(self.BASE_SELL, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip(
+            self.REENTRY_SETUP + "\nReentry piccole size", CH_IVAN, bridge_state
+        )
+        assert sig["action"] == "OPEN"
+        assert sig["allow_stack"] is True
+        assert sig["lot_factor"] == 0.5
+
+    def test_first_setup_never_stacks(self, bridge_state):
+        sig = parser_ivan_vip(self.REENTRY_SETUP, CH_IVAN, bridge_state)
+        assert sig["action"] == "OPEN"
+        assert "allow_stack" not in sig
+
+    def test_edit_of_reentry_setup_is_not_second_stack(self, bridge_state):
+        parser_ivan_vip(self.BASE_SELL, CH_IVAN, bridge_state)
+        first = parser_ivan_vip(self.REENTRY_SETUP, CH_IVAN, bridge_state)
+        assert first["allow_stack"] is True
+        again = parser_ivan_vip(self.REENTRY_SETUP, CH_IVAN, bridge_state)
+        assert "allow_stack" not in again
+        upd = coerce_edit_open_to_update(dict(again), is_edit=True)
+        assert upd["action"] == "UPDATE_OPEN"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "CHIUDIAMO ORA LA REENTRY SOLO",
+            "Chiudiamo la reentry",
+            "Chiudo il rientro",
+            "Chiudiamo solo la reentry",
+        ],
+    )
+    def test_close_reentry_only_closes_newest(self, bridge_state, text):
+        parser_ivan_vip(self.BASE_SELL, CH_IVAN, bridge_state)
+        parser_ivan_vip(self.REENTRY_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip(text, CH_IVAN, bridge_state)
+        assert sig is not None, text
+        assert sig["action"] == "CLOSE_SELECTIVE", text
+        assert sig["keep"] == "ALL_BUT_NEWEST", text
+
+    def test_close_everything_still_total(self, bridge_state):
+        parser_ivan_vip(self.BASE_SELL, CH_IVAN, bridge_state)
+        parser_ivan_vip(self.REENTRY_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip("Chiudiamo tutto", CH_IVAN, bridge_state)
+        assert sig["action"] == "CLOSE_ALL_SYMBOL"
+
+    def test_reentry_less_premium_selective(self, bridge_state):
+        parser_ivan_vip(self.BASE_SELL, CH_IVAN, bridge_state)
+        parser_ivan_vip(self.REENTRY_SETUP, CH_IVAN, bridge_state)
+        sig = parser_ivan_vip(
+            "Chi è ancora dentro la reentry chiudete quelle meno premium e lasciate solo quelle premium",
+            CH_IVAN, bridge_state,
+        )
+        assert sig["action"] == "CLOSE_SELECTIVE"
+        assert sig["keep"] == "BEST"
+
     def test_rientrate_ora_reopens_last_setup(self, bridge_state):
         parser_ivan_vip(IVAN_SETUP, CH_IVAN, bridge_state)
         sig = parser_ivan_vip("Rientrate ora", CH_IVAN, bridge_state)

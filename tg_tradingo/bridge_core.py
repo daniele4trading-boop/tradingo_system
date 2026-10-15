@@ -184,10 +184,47 @@ _SELECTIVE_REENTRY_NOUN = (
 )
 # "lasciamo/teniamo solo quelle …": il qualificatore descrive ciò che RESTA.
 SELECTIVE_KEEP_MAX_WORDS = 10
+# "Mettiamo a BE le entrate più brutte", "chiudere a BE le entry più alte":
+# il canale protegge a pareggio solo una parte delle entry (SL al fill), non le
+# chiude a mercato. Il valore descrive il gruppo da portare a BE.
+BE_SCOPE_MODES = frozenset({"ALL", "BEST", "WORST", "HIGHEST", "LOWEST"})
+_SELECTIVE_BE_MARK = r"(?:\bBE\b|\bB\.E\.?|\bBREAK\s*EVEN\b|\bBREAKEVEN\b|\bPAREGGIO\b)"
+_SELECTIVE_WORST_EXT = (
+    r"(?:MENO\s+PREMIUM|PEGGIOR[EI]|PIU\s+BRUTT[EI]|BRUTT[EI]|PIU\s+DEBOL[EI]|"
+    r"MENO\s+BUON[EI]|IN\s+PERDITA|IN\s+LOSS|WORST|WEAKEST)"
+)
 _SELECTIVE_KEEP_VERB = (
     r"(?:LASCIAMO|LASCIATE|LASCIA|LASCIANDO|TENIAMO|TENETE|TIENI|"
     r"MANTENIAMO|MANTENETE|RESTANO|RESTA|KEEP|HOLD)"
 )
+
+
+def match_selective_be_intent(upper: str) -> str | None:
+    """BE solo su una parte delle entry: ritorna il gruppo da portare a pareggio.
+
+    Valori: ``WORST`` / ``BEST`` / ``HIGHEST`` / ``LOWEST`` (vedi BE_SCOPE_MODES),
+    ``None`` se il messaggio non è un BE selettivo. "Chiudere a BE le entry più
+    alte" è un BE (SL al fill), non una chiusura a mercato: va valutato PRIMA
+    di :func:`match_selective_close_intent`.
+    """
+    if not upper or not upper.strip():
+        return None
+    text = _fold_accents_upper(upper)
+    if not re.search(_SELECTIVE_BE_MARK, text):
+        return None
+    if re.search(_SELECTIVE_ENTRY_NOUN, text) is None:
+        return None
+    if re.search(r"\bTUTT[OIE]\b|\bALL\b", text):
+        return None
+    if re.search(_SELECTIVE_WORST_EXT, text):
+        return "WORST"
+    if re.search(_SELECTIVE_BEST, text):
+        return "BEST"
+    if re.search(_SELECTIVE_HIGH, text):
+        return "HIGHEST"
+    if re.search(_SELECTIVE_LOW, text):
+        return "LOWEST"
+    return None
 
 
 def match_selective_close_intent(upper: str) -> str | None:
@@ -213,7 +250,10 @@ def match_selective_close_intent(upper: str) -> str | None:
     # La forma "tieni" non ha verbo di chiusura: vale solo in messaggi brevi,
     # così una frase narrativa lunga non chiude posizioni.
     words = re.findall(r"[A-Za-z\u00c0-\u00ff]+", text)
-    if keep_form and has_noun and len(words) <= SELECTIVE_KEEP_MAX_WORDS:
+    if (
+        keep_form and has_noun and len(words) <= SELECTIVE_KEEP_MAX_WORDS
+        and not re.search(r"\bSL\b|\bSTOP\b|\bNORMAL[EI]\b|\bBE\b", text)
+    ):
         if re.search(_SELECTIVE_HIGH, text):
             return "HIGHEST"
         if re.search(_SELECTIVE_LOW, text):
@@ -235,7 +275,8 @@ def match_selective_close_intent(upper: str) -> str | None:
     # Il complemento deve seguire il verbo: "chiudiamo tutto" resta una chiusura
     # totale anche se la frase parla di rientri.
     if not re.search(r"\bTUTT[OIE]\b|\bALL\b|\bEVERYTHING\b", text) and re.search(
-        rf"{close_verb}\s+(?:LA|IL|LE|I|GLI|LO|SOLO|SOLTANTO|THE)?\s*"
+        rf"{close_verb}\s+(?:(?:ORA|ADESSO|SUBITO|NOW|QUI|TUTT[AE]|SOLO|SOLTANTO)\s+)?"
+        rf"(?:LA|IL|LE|I|GLI|LO|SOLO|SOLTANTO|THE)?\s*"
         rf"{_SELECTIVE_REENTRY_NOUN}",
         text,
     ):
@@ -1170,6 +1211,11 @@ def validate_signal(signal: dict) -> tuple[bool, str]:
         keep = signal.get("keep")
         if keep not in SELECTIVE_KEEP_MODES:
             return False, f"CLOSE_SELECTIVE keep must be one of {sorted(SELECTIVE_KEEP_MODES)}, got {keep!r}"
+
+    if action == "CHECK_AND_BE":
+        scope = signal.get("scope")
+        if scope is not None and scope not in BE_SCOPE_MODES:
+            return False, f"CHECK_AND_BE scope must be one of {sorted(BE_SCOPE_MODES)}, got {scope!r}"
 
     if action == "OPEN_NOW":
         if signal.get("entry") is not None:
