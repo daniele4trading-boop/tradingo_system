@@ -16,15 +16,39 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.29** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.30** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| Bridge Python | **2.31** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.32** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
 
-**MT5 2.30 (bridge 2.29 invariato):** regole prop Agorà. (1) Guard DD giornaliero
+**MT5 2.32:** unione dei due rami 2.30/2.31 sviluppati in parallelo: EA 2.30 IVAN di `main` (BE selettivo, stack rientri, `InpBeMode`) + guard DD prop e canali Hybrid del branch deploy Gamehosting (descritti sotto come "MT5 2.30 prop" e "MT5 2.31 Hybrid").
+
+**2.31 (bridge):** casi IVAN del 14/10. (1) `TP4: swing` veniva letto come TP=4.0 (il "4"
+di "TP4") e il setup intero scartato ("TP levels incoherent"): nessun trade aperto su nessun
+conto. Ora un TP non numerico (`swing`, `open`, `?`) è uno slot vuoto e il trade si apre
+comunque: ultimo TP mancante = precedente + 300 pips (30 $ oro, `IVAN_TP_FALLBACK_PIPS`),
+intermedio = metà tra precedente e successivo, primo = metà tra entry e successivo (log
+`TP_FALLBACK`). (2) "Aspettiamo **ora prima di** rientrare" era un rientro a mercato
+(bloccato dall'EA solo per il drift 210 %): "prima di rientrare/entrare" e "aspettiamo
+ora/adesso" sono attese, non ordini.
+
+**2.30 / MT5 2.30:** casi IVAN dell'8-12/10. Bridge: (1) "mettiamo a BE le entrate più
+brutte" / "chiudere a BE le entry più alte" → `CHECK_AND_BE` con `scope`
+(WORST/BEST/HIGHEST/LOWEST), SL al fill sulle gambe indicate, non più `CLOSE_SELECTIVE` a
+mercato; "lasciamo normali con SL quelle più alte" non è una chiusura. (2) Setup completo che
+si dichiara rientro ("SELL 4171 … Reentry, si") → `OPEN` con `allow_stack=true` (nuovo
+blocco, "piccole size" → `lot_factor=0.5`); l'EDIT dello stesso rientro non stacka due volte.
+(3) "CHIUDIAMO ORA LA REENTRY SOLO" / "chiudo il rientro" → `CLOSE_SELECTIVE
+keep=ALL_BUT_NEWEST` (prima `CLOSE_ALL_SYMBOL`: chiuse le 4 posizioni base). EA: (4)
+`CHECK_AND_BE scope`; (5) `UPDATE_OPEN` non riapre una gamba già chiusa (TP/SL/BE) dello
+stesso `signal_id` (storico deal, `InpUpdateFillHistoryHours`); (6) coda BE ritentata ogni
+`InpBePendingRetrySec` (5 s) senza ripetere i log; (7) `InpBeMode=BE_SIGNAL_ENTRY`: BE alla
+entry del canale anche se peggiore del fill, entro `InpBeSignalEntryMaxLoss` (5 $/oz).
+
+**MT5 2.30 prop (in 2.32):** regole prop Agorà. (1) Guard DD giornaliero
 `InpDdDailyPct`: riferimento = max(saldo, equity) al reset delle `InpDdDailyResetHourNY`
 (17:00 New York, ora legale USA gestita), salvato in GlobalVariable `TG_TRADINGO_DDD_*` così
 sopravvive ai riavvii nello stesso giorno. Sotto `InpDdDailyBlockNewAtPct` % del limite blocca
@@ -52,7 +76,7 @@ canale ("Mettiamo BE x free risk", "Spostiamo stop a BE", "Portiamo lo stop a BE
 e gli annunci per dopo ("Come tocca TP 1 mettiamo stop a BE", "quando/appena") non
 emettono `CHECK_AND_BE`. Il 17/09 "Mettiamo BE x free risk" non era stato riconosciuto.
 
-**2.31 / MT5 2.31:** canali `CH_HYBRIDGOLD` (Hybrid | Setup Gold, magic 15000,
+**Hybrid (bridge + MT5, in 2.32):** canali `CH_HYBRIDGOLD` (Hybrid | Setup Gold, magic 15000,
 `signal_ch_hybridgold.json`, tag `HG`) e `CH_HYBRIDFX` (Hybrid | Setup Forex, magic 16000,
 `signal_ch_hybridfx.json`, tag `HF`), parser `hybrid`. Input `InpLotHybridGold`/`InpLotHybridFx`,
 `InpDdFloatHybridGold`/`InpDdFloatHybridFx`. La gestione (anticipo TP, SL spostato, stop preso,
