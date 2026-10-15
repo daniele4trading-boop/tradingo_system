@@ -2226,8 +2226,9 @@ def parser_sala_stark(text: str, ch: dict, state: BridgeState | None = None) -> 
         m_sl = re.search(r"\bSL\b\s*[:\s]\s*([\d.,]+)", upper)
         sl   = pf(m_sl.group(1)) if m_sl else None
 
+        # "TP1: x" oppure, dal 9/10/2026, un solo "TP: x" senza numero.
         tps = [pf(m.group(2))
-               for m in re.finditer(r"TP\s*(\d)\s*[:\s]\s*([\d.,]+)", upper)]
+               for m in re.finditer(r"\bTP\s*(\d)?\s*[:\s]\s*([\d.,]+)", upper)]
 
         inherit = is_add and sl is None and not tps
 

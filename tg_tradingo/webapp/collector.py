@@ -207,6 +207,48 @@ class Collector:
         with self._lock:
             return dict(self._snapshot)
 
+    def channel_trades(self, channel_id: str, days: int = 30) -> list[dict]:
+        """Trade chiuse del canale `channel_id` negli ultimi `days` giorni UTC (una riga per TP)."""
+        from webapp.pnl import (
+            NORM_LOT, _f, build_magic_map, load_trades_range, normalize_channel,
+            signal_volumes, trade_pips,
+        )
+        magic_map = build_magic_map(self._tradingo_cfg.get("channels", []))
+        result: list[dict] = []
+        for acc in self.cfg.get("accounts", []):
+            jdir = acc.get("ea_journal_dir")
+            if not jdir:
+                continue
+            trades_dir = Path(jdir) / "trades"
+            rows = load_trades_range(trades_dir, days, acc.get("start_date"))
+            sig_vol = signal_volumes(rows)
+            for row in rows:
+                if (row.get("event") or "").upper() != "CLOSE":
+                    continue
+                ch = normalize_channel(row.get("channel"), magic=row.get("magic"), magic_map=magic_map)
+                if ch != channel_id:
+                    continue
+                vol = _f(row, "volume")
+                pnl = _f(row, "realized_profit", "gross_profit")
+                svol = sig_vol.get(str(row.get("signal_id") or row.get("ticket"))) or vol
+                result.append({
+                    "ts_utc": row.get("close_time_utc") or row.get("ts_utc"),
+                    "symbol": row.get("symbol"),
+                    "direction": row.get("direction"),
+                    "tp_index": row.get("tp_index"),
+                    "volume": vol,
+                    "entry_price": _f(row, "fill", "req_entry"),
+                    "close_price": _f(row, "close_price"),
+                    "profit_usd": round(pnl, 2),
+                    "pnl_norm": round(pnl * NORM_LOT / svol, 2) if svol > 0 else 0.0,
+                    "pips": round(trade_pips(row), 1),
+                    "close_reason": row.get("close_reason"),
+                    "signal_id": row.get("signal_id"),
+                    "account": acc.get("label") or acc.get("id"),
+                })
+        result.sort(key=lambda r: r.get("ts_utc") or "", reverse=True)
+        return result
+
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
@@ -386,7 +428,7 @@ class Collector:
                 else:
                     details.append(f"journal EA {age}s fa")
 
-        return {"status": status, "detail": " · ".join(details), "label": "MT5 locale (Moneta/Vantage)"}
+        return {"status": status, "detail": " · ".join(details), "label": "MT5 locale"}
 
     def _check_friend_link(self) -> dict:
         host = self.checks.get("friend_host")
