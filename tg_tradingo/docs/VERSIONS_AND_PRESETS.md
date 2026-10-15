@@ -16,13 +16,22 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.30** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| Bridge Python | **2.31** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
 | EA MT5 | **2.30** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**2.31 (bridge):** casi IVAN del 14/10. (1) `TP4: swing` veniva letto come TP=4.0 (il "4"
+di "TP4") e il setup intero scartato ("TP levels incoherent"): nessun trade aperto su nessun
+conto. Ora un TP non numerico (`swing`, `open`, `?`) è uno slot vuoto e il trade si apre
+comunque: ultimo TP mancante = precedente + 300 pips (30 $ oro, `IVAN_TP_FALLBACK_PIPS`),
+intermedio = metà tra precedente e successivo, primo = metà tra entry e successivo (log
+`TP_FALLBACK`). (2) "Aspettiamo **ora prima di** rientrare" era un rientro a mercato
+(bloccato dall'EA solo per il drift 210 %): "prima di rientrare/entrare" e "aspettiamo
+ora/adesso" sono attese, non ordini.
 
 **2.30 / MT5 2.30:** casi IVAN dell'8-12/10. Bridge: (1) "mettiamo a BE le entrate più
 brutte" / "chiudere a BE le entry più alte" → `CHECK_AND_BE` con `scope`

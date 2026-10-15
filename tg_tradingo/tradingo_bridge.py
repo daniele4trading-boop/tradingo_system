@@ -67,7 +67,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.30"
+BRIDGE_VERSION = "2.31"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -1517,7 +1517,13 @@ _REENTRY_CONDITIONAL = (
     r"\bVALUTO\b|\bVEDIAMO\b|\bPOTREMMO\b|\bPOTREI\b|\bMAYBE\b|\bIF\b"
 )
 # Condizione di prezzo futura: vale in qualunque posizione della frase.
-_REENTRY_CONDITIONAL_ALWAYS = r"\bRITRA[CX]\w*|\bPULLBACK\b|\bSTORNO\b"
+# "Aspettiamo ora prima di rientrare" (14/10): l'"ora" si riferisce all'attesa,
+# non al rientro; "prima di <verbo>" e "aspettiamo ora/adesso" sono attese.
+_REENTRY_CONDITIONAL_ALWAYS = (
+    r"\bRITRA[CX]\w*|\bPULLBACK\b|\bSTORNO\b|"
+    r"\bPRIMA\s+DI\s+(?:RI)?(?:ENTR|APR)\w*|"
+    r"\b(?:ASPETT\w+|ATTEND\w+)\s+(?:ORA|ADESSO|UN\s+ATTIMO|UN\s+PO)\b"
+)
 _REENTRY_VERB = (
     r"\bRIENTR\w*|\bRIAPR\w*|\bRE[- ]?ENTR\w*|\bDENTRO\b|\bENTR(?:IAMO|ATE|A)\b|"
     r"\bAGGIUNG\w*"
@@ -2294,6 +2300,49 @@ def parser_sala_stark(text: str, ch: dict, state: BridgeState | None = None) -> 
 #   CHIUDERE ORA       -> CLOSE_ALL_SYMBOL (XAUUSD)
 #   Meta size / METÀ SIZE / MEZZA SIZE -> lot_factor 0.5
 
+# "TP4: swing": il trade si apre comunque. L'ultimo TP mancante vale il
+# precedente + 300 pips (30 $ sull'oro); quelli intermedi stanno a metà tra il
+# precedente e il successivo; il primo a metà tra entry e il successivo.
+IVAN_TP_FALLBACK_PIPS = 300
+IVAN_PIP_XAU = 0.1
+
+
+def _ivan_fill_missing_tps(
+    slots: list[float | None],
+    direction: str,
+    entry: float | None,
+    entry_range: list[float] | None,
+) -> list[float]:
+    if not slots:
+        return []
+    known = [v for v in slots if v is not None]
+    if not known:
+        return []
+    sign = 1.0 if direction == "BUY" else -1.0
+    step = IVAN_TP_FALLBACK_PIPS * IVAN_PIP_XAU
+    if entry is not None:
+        ref = entry
+    elif entry_range:
+        ref = (entry_range[0] + entry_range[1]) / 2.0
+    else:
+        ref = None
+    out: list[float | None] = list(slots)
+    for i, v in enumerate(out):
+        if v is not None:
+            continue
+        prev = next((out[j] for j in range(i - 1, -1, -1) if out[j] is not None), None)
+        nxt = next((out[j] for j in range(i + 1, len(out)) if out[j] is not None), None)
+        if prev is None:
+            prev = ref
+        if nxt is not None and prev is not None:
+            out[i] = round((prev + nxt) / 2.0, 2)
+        elif prev is not None:
+            out[i] = round(prev + sign * step, 2)
+        else:
+            out[i] = nxt
+    return [v for v in out if v is not None]
+
+
 def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> dict | None:
     if state is None:
         state, _ = _ensure_runtime()
@@ -2501,13 +2550,19 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
     sl = None
     # I setup arrivano sia multiriga ("TP 1 4006") sia su una riga sola con
     # separatori ("| TP1: 4596 | ... | SL: 4570"): i segmenti valgono uguale.
+    tp_slots: list[float | None] = []
     for line in re.split(r"[\n|]", raw):
         lu = strip_md(line).upper().strip()
-        m_tp = re.match(r"TP\s*\d*\s*[:.@]?\s*([\d.,]+)", lu)
+        m_tp = re.match(r"TP\s*\d?\s*[:.@]?\s*(\d[\d.,]{2,})", lu)
         if m_tp:
             v = pf(m_tp.group(1))
             if v is not None:
-                tps.append(v)
+                tp_slots.append(v)
+            continue
+        # "TP4: swing" / "TP4: open" (14/10): livello non numerico. Prima il
+        # "4" di "TP4" diventava il prezzo e il setup veniva scartato.
+        if re.match(r"TP\s*\d?\s*[:.@]?\s*\S", lu):
+            tp_slots.append(None)
             continue
         m_sl = re.match(r"SL\s*[:@]?\s*([\d.,]+)", lu)
         if m_sl:
@@ -2516,6 +2571,12 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
     if sl is None:
         log.debug(f"[IVAN] Segnale incompleto: {raw[:60]}")
         return None
+    tps = _ivan_fill_missing_tps(tp_slots, direction, entry, entry_range)
+    if None in tp_slots:
+        log.warning(
+            f"[IVAN] TP non interpretabile in {tp_slots}, livelli calcolati "
+            f"{tps} (TP_FALLBACK)"
+        )
     # "XAUUSD SELL 4313 | SL: 4327" (16/09): i TP arrivano con l'EDIT 2-3 minuti
     # dopo, quando il prezzo è già scappato. Il setup con solo SL apre subito
     # senza TP; l'UPDATE_OPEN successivo aggiunge i target.
