@@ -243,11 +243,50 @@ Il parquet principale contiene eventi, outcome e pannello feature; il manifest
 registra configurazione, input hashati e metadati di pulizia M1. Gli output
 parquet sono esclusi dal versionamento tramite `.gitignore`.
 
-Questo pacchetto **non contiene** risultati S1+, equity curve, una strategia
-tradabile completa, sizing, execution simulator o costi realistici calibrati
-su liquidità/market impact. I risultati S1 e S2 non sono stati ancora
-avviati.
+Questo pacchetto **non contiene** equity curve, una strategia tradabile
+completa, sizing, execution simulator o costi realistici calibrati su
+liquidità/market impact. S2 non è stato avviato.
+
+## S1 — event study
+
+```bash
+PYTHONPATH=. /home/ubuntu/venv-sweep/bin/python -m sweep_research_h4 run \
+  --stage s1 --config sweep_research_h4/config/h4_basket.yaml
+```
+
+Legge `output/events_h4.parquet` (prodotto da S0) e scrive in `output/s1/`:
+`s1_summary.json`, `s1_tests.csv`, `s1_report.html` (autocontenuto), grafici
+e manifest con hash dell'input.
+
+Regole dichiarate prima di guardare i risultati:
+
+- metrica primaria: `fwd_ret_h_ex_bp − cost_rt_bp` (entry next open,
+  direzione continuation, drift simbolo×anno rimosso, spread sottratto);
+  accanto sono riportati lordo grezzo e lordo detrended;
+- orizzonti 1, 2, 4, 12 barre H4;
+- `symbol` effetto fisso: i residui sono demeanati per simbolo. Il pooled è
+  riportato in due versioni, `fe_nweighted` (peso per numero di eventi) e
+  `fe_equal_weight` (ogni simbolo 1/K, neutralizza la prevalenza FX);
+- ogni orizzonte riporta sempre pooled, per simbolo, per `level_family`
+  (`equal`, `swing20`, `swing10`, `swing5`), simbolo × level_family, per
+  direzione, per anno e asimmetria `sweep_high − sweep_low`;
+- SE cluster-robust per settimana di trading (`ts + 3h`, ISO week): copre la
+  sovrapposizione degli orizzonti fino a 12 barre e la correlazione
+  cross-simbolo (fattore USD). Il t clusterizzato per giorno è riportato come
+  robustezza; CI 95% bootstrap a blocchi settimanali (2000 draw, seed da YAML);
+- Benjamini-Hochberg q=0.10 su tutti i test netti della griglia S1;
+- MFE/MAE a 12 barre in ATR, pooled, per simbolo e per level_family.
+
+## Ricostruzione dati M1
+
+`scripts/fetch_dukascopy_m1.py` riscarica le candele M1 BID+ASK Dukascopy nel
+layout del warehouse. Il datafeed applica un throttling forte (10–40 s per
+file, HTTP 503 con richieste parallele): l'intero storico richiede giorni.
+I simboli con `source=dukascopy` nel warehouse originale (XAUUSD, XAGUSD, DXY,
+UST) erano costruiti da tick; riscaricandoli da candele i conteggi S0 possono
+differire leggermente e vanno ricontrollati contro `counts.json`.
 
 ## Stato
 
-**S0 completato. S1 non avviato.**
+**S0 completato. Codice S1 pronto e testato su dati sintetici; S1 sui dati
+reali in attesa del dataset S0 (warehouse Contabo non raggiungibile).**

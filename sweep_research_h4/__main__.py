@@ -43,6 +43,11 @@ def main() -> int:
 
         run(cfg)
         return 0
+    if args.stage == "s1":
+        from .src.stages.s1 import run
+
+        run(cfg)
+        return 0
     parser.error(f"stage non valido: {args.stage}")
     return 2
 
