@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.31"
+#property version   "2.32"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.31"
+#define EA_VERSION "2.32"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -82,12 +82,27 @@ input bool   InpBeNeverWorseThanEntry = true;
 // entry) the break-even stays pending and is retried on every tick until the
 // market allows it; a position that closes meanwhile is simply dropped.
 input bool   InpBePendingRetry        = true;
+// Minimum seconds between two retries of the pending break-even queue (09/10:
+// retry on every tick produced thousands of BE_PENDING lines for 20 min).
+input int    InpBePendingRetrySec     = 5;
 // CHECK_AND_BE may carry be_price = the entry published by the channel. The
 // real fill is often 2-3$ worse (2026-09-14: BE at fill 4278.1 stopped at once,
 // the channel's 4276 was never touched). Use be_price when it is legal vs the
 // market and within this gap from the fill; otherwise fall back to the fill.
 input bool   InpBeUseSignalEntry     = true;
 input int    InpBeSignalEntryMaxGapPoints = 500;
+// BE_FILL_IF_BETTER: SL at the more protective between fill and be_price.
+// BE_SIGNAL_ENTRY: SL at be_price even when it locks a small loss vs our fill
+// (channel entered better than us: its BE survives the retrace, ours does not;
+// 08/10: BE at fill 4123.8 stopped flat, channel BE 4116 then took TP2/TP3).
+// Loss vs fill capped at InpBeSignalEntryMaxLoss (price units), beyond -> fill.
+enum ENUM_BE_MODE { BE_FILL_IF_BETTER = 0, BE_SIGNAL_ENTRY = 1 };
+input ENUM_BE_MODE InpBeMode          = BE_SIGNAL_ENTRY;
+input double InpBeSignalEntryMaxLoss  = 5.0;
+// UPDATE_OPEN re-fills a planned slot only if it was never opened for this
+// signal: a leg already closed (TP/SL/BE) must not be reopened (09/10: T1 took
+// TP1, the TP update 20 s later reopened it). Lookback for the history check.
+input int    InpUpdateFillHistoryHours = 48;
 // UPDATE_SL moving the stop further away is a legitimate channel decision (give
 // the price room), but the lot size was computed on the previous risk: cap the
 // new stop at this multiple of the open->current SL distance instead of
@@ -673,6 +688,13 @@ double BeTargetForPosition(const string direction, const double fill, const doub
    double gapPts = MathAbs(signalEntry - fill) / g_sym.Point();
    if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
       return fill;
+   if(InpBeMode == BE_SIGNAL_ENTRY)
+     {
+      bool worse = (direction == "BUY") ? (signalEntry < fill) : (signalEntry > fill);
+      if(worse && InpBeSignalEntryMaxLoss > 0.0 && MathAbs(signalEntry - fill) > InpBeSignalEntryMaxLoss)
+         return fill;
+      return signalEntry;
+     }
    if(direction == "BUY")
       return MathMax(fill, signalEntry);
    return MathMin(fill, signalEntry);
@@ -682,7 +704,9 @@ datetime g_beLastRetry = 0;
 
 void ProcessBePending()
   {
-   if(ArraySize(g_bePending) == 0 || TimeCurrent() == g_beLastRetry)
+   if(ArraySize(g_bePending) == 0)
+      return;
+   if(TimeCurrent() - g_beLastRetry < MathMax(1, InpBePendingRetrySec))
       return;
    g_beLastRetry = TimeCurrent();
    for(int i = ArraySize(g_bePending) - 1; i >= 0; i--)
@@ -715,7 +739,7 @@ bool ApplyBreakEvenSLEx(const ulong ticket, const bool fromQueue, const double s
    double fill = g_pos.PriceOpen();
    double be = BeTargetForPosition(direction, fill, signalEntry);
    int digits = (int)g_sym.Digits();
-   if(signalEntry > 0.0 && MathAbs(be - signalEntry) > g_sym.Point())
+   if(!fromQueue && signalEntry > 0.0 && MathAbs(be - signalEntry) > g_sym.Point())
      {
       double gapPts = MathAbs(signalEntry - fill) / g_sym.Point();
       if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
@@ -745,7 +769,8 @@ bool ApplyBreakEvenSLEx(const ulong ticket, const bool fromQueue, const double s
       // to the fill for this attempt instead of giving up the break-even.
       if(InpBeNeverWorseThanEntry && worseThanEntry && MathAbs(be - fill) > tol)
         {
-         Print("[TradinGo] BE_SIGNAL_ENTRY_ILLEGAL ticket=", ticket,
+         if(!fromQueue)
+            Print("[TradinGo] BE_SIGNAL_ENTRY_ILLEGAL ticket=", ticket,
                " signal_entry=", DoubleToString(be, digits),
                " would_be_sl=", DoubleToString(nsl, digits),
                " fill=", DoubleToString(fill, digits), " (", direction, ") -> BE at fill");
@@ -1592,6 +1617,12 @@ bool HandleUpdateOpen(const string channelFile, const string json)
         {
          if(IsOpenBlocked(symbol))
             continue;
+         if(SlotClosedForSignal(symbol, magic, JsonGetString(json, "signal_id")))
+           {
+            Print("[TradinGo] UPDATE_OPEN slot=", i, "/", n, " magic=", magic,
+                  " already closed for this signal — not reopened");
+            continue;
+           }
          Print("[TradinGo] UPDATE_OPEN fill missing magic=", magic,
                " slot=", i, "/", n);
          if(OpenMarket(symbol, direction, lot, sl, tp, magic,
@@ -1966,21 +1997,116 @@ bool HandleCloseHalfBe(const string json)
   }
 
 //+------------------------------------------------------------------+
+// True when a position of this magic, opened for the same signal_id (comment
+// suffix), already exists in history as closed: the slot was filled and then
+// closed by TP/SL/BE, so an UPDATE_OPEN must not fill it again.
+bool SlotClosedForSignal(const string symbol, const ulong magic, const string sid)
+  {
+   if(sid == "" || InpUpdateFillHistoryHours <= 0)
+      return false;
+   if(!HistorySelect(TimeCurrent() - InpUpdateFillHistoryHours * 3600, TimeCurrent() + 60))
+      return false;
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+     {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0)
+         continue;
+      if((ulong)HistoryDealGetInteger(d, DEAL_MAGIC) != magic)
+         continue;
+      if(HistoryDealGetString(d, DEAL_SYMBOL) != symbol)
+         continue;
+      if(HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_IN)
+         continue;
+      string cmt = HistoryDealGetString(d, DEAL_COMMENT);
+      if(StringFind(cmt, "-" + sid) < 0 && StringFind(cmt, sid) < 0)
+         continue;
+      ulong posId = (ulong)HistoryDealGetInteger(d, DEAL_POSITION_ID);
+      bool stillOpen = false;
+      for(int p = PositionsTotal() - 1; p >= 0; p--)
+         if(g_pos.SelectByIndex(p) && (ulong)g_pos.Identifier() == posId)
+           {
+            stillOpen = true;
+            break;
+           }
+      if(!stillOpen)
+         return true;
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+// scope (optional): ALL | BEST | WORST | HIGHEST | LOWEST — restrict the
+// break-even to the entries of that group ("mettiamo a BE le entrate più
+// brutte"): SL moved to BE on those, the others keep their SL. Nothing closes.
+bool BeScopeSelects(const string scope, const string direction,
+                    const double price, const double hi, const double lo)
+  {
+   if(scope == "" || scope == "ALL")
+      return true;
+   double tol = g_sym.Point() * 5;
+   bool isHi = (price >= hi - tol);
+   bool isLo = (price <= lo + tol);
+   if(scope == "HIGHEST")
+      return isHi;
+   if(scope == "LOWEST")
+      return isLo;
+   bool bestIsHi = (direction == "SELL");
+   if(scope == "BEST")
+      return bestIsHi ? isHi : isLo;
+   if(scope == "WORST")
+      return bestIsHi ? isLo : isHi;
+   return true;
+  }
+
 bool HandleCheckAndBe(const string json)
   {
    int magicBase = JsonGetInt(json, "magic_base");
    double signalEntry = JsonGetNumber(json, "be_price");
+   string scope = JsonGetString(json, "scope");
    if(signalEntry > 0.0)
       Print("[TradinGo] CHECK_AND_BE be_price=", DoubleToString(signalEntry, 2),
             " (signal entry, fallback to fill if not legal)");
+   double hi = 0.0, lo = 0.0;
+   string direction = "";
+   int cnt = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       if(!g_pos.SelectByIndex(i))
          continue;
       if(!IsOurPosition(g_pos.Ticket(), magicBase, 5))
          continue;
-      ApplyBreakEvenSLSignal(g_pos.Ticket(), signalEntry);
+      double po = g_pos.PriceOpen();
+      if(cnt == 0 || po > hi)
+         hi = po;
+      if(cnt == 0 || po < lo)
+         lo = po;
+      direction = (g_pos.PositionType() == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+      g_sym.Name(g_pos.Symbol());
+      cnt++;
      }
+   if(cnt == 0)
+      return true;
+   if(scope != "" && scope != "ALL" && hi - lo <= g_sym.Point() * 5)
+     {
+      Print("[TradinGo] CHECK_AND_BE scope=", scope,
+            " — all ", cnt, " fills equal (", DoubleToString(hi, (int)g_sym.Digits()),
+            "): BE applied to all");
+      scope = "ALL";
+     }
+   int done = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(!g_pos.SelectByIndex(i))
+         continue;
+      if(!IsOurPosition(g_pos.Ticket(), magicBase, 5))
+         continue;
+      if(!BeScopeSelects(scope, direction, g_pos.PriceOpen(), hi, lo))
+         continue;
+      ApplyBreakEvenSLSignal(g_pos.Ticket(), signalEntry);
+      done++;
+     }
+   if(scope != "" && scope != "ALL")
+      Print("[TradinGo] CHECK_AND_BE scope=", scope, " (", direction, ") BE on ", done, "/", cnt);
    return true;
   }
 

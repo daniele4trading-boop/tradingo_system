@@ -38,6 +38,7 @@ from bridge_core import (
     match_move_sl_price,
     match_move_tp_price,
     match_partial_close_intent,
+    match_selective_be_intent,
     match_selective_close_intent,
     salvage_incoherent_entry_range,
     payload_for_ea,
@@ -66,7 +67,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.29"
+BRIDGE_VERSION = "2.32"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -1516,7 +1517,13 @@ _REENTRY_CONDITIONAL = (
     r"\bVALUTO\b|\bVEDIAMO\b|\bPOTREMMO\b|\bPOTREI\b|\bMAYBE\b|\bIF\b"
 )
 # Condizione di prezzo futura: vale in qualunque posizione della frase.
-_REENTRY_CONDITIONAL_ALWAYS = r"\bRITRA[CX]\w*|\bPULLBACK\b|\bSTORNO\b"
+# "Aspettiamo ora prima di rientrare" (14/10): l'"ora" si riferisce all'attesa,
+# non al rientro; "prima di <verbo>" e "aspettiamo ora/adesso" sono attese.
+_REENTRY_CONDITIONAL_ALWAYS = (
+    r"\bRITRA[CX]\w*|\bPULLBACK\b|\bSTORNO\b|"
+    r"\bPRIMA\s+DI\s+(?:RI)?(?:ENTR|APR)\w*|"
+    r"\b(?:ASPETT\w+|ATTEND\w+)\s+(?:ORA|ADESSO|UN\s+ATTIMO|UN\s+PO)\b"
+)
 _REENTRY_VERB = (
     r"\bRIENTR\w*|\bRIAPR\w*|\bRE[- ]?ENTR\w*|\bDENTRO\b|\bENTR(?:IAMO|ATE|A)\b|"
     r"\bAGGIUNG\w*"
@@ -2294,6 +2301,49 @@ def parser_sala_stark(text: str, ch: dict, state: BridgeState | None = None) -> 
 #   CHIUDERE ORA       -> CLOSE_ALL_SYMBOL (XAUUSD)
 #   Meta size / METÀ SIZE / MEZZA SIZE -> lot_factor 0.5
 
+# "TP4: swing": il trade si apre comunque. L'ultimo TP mancante vale il
+# precedente + 300 pips (30 $ sull'oro); quelli intermedi stanno a metà tra il
+# precedente e il successivo; il primo a metà tra entry e il successivo.
+IVAN_TP_FALLBACK_PIPS = 300
+IVAN_PIP_XAU = 0.1
+
+
+def _ivan_fill_missing_tps(
+    slots: list[float | None],
+    direction: str,
+    entry: float | None,
+    entry_range: list[float] | None,
+) -> list[float]:
+    if not slots:
+        return []
+    known = [v for v in slots if v is not None]
+    if not known:
+        return []
+    sign = 1.0 if direction == "BUY" else -1.0
+    step = IVAN_TP_FALLBACK_PIPS * IVAN_PIP_XAU
+    if entry is not None:
+        ref = entry
+    elif entry_range:
+        ref = (entry_range[0] + entry_range[1]) / 2.0
+    else:
+        ref = None
+    out: list[float | None] = list(slots)
+    for i, v in enumerate(out):
+        if v is not None:
+            continue
+        prev = next((out[j] for j in range(i - 1, -1, -1) if out[j] is not None), None)
+        nxt = next((out[j] for j in range(i + 1, len(out)) if out[j] is not None), None)
+        if prev is None:
+            prev = ref
+        if nxt is not None and prev is not None:
+            out[i] = round((prev + nxt) / 2.0, 2)
+        elif prev is not None:
+            out[i] = round(prev + sign * step, 2)
+        else:
+            out[i] = nxt
+    return [v for v in out if v is not None]
+
+
 def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> dict | None:
     if state is None:
         state, _ = _ensure_runtime()
@@ -2317,6 +2367,25 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
     if pat and not has_setup and not has_move_tp_cmd:
         log.debug(f"[IVAN] Ignorato ({pat}): {raw[:60]}")
         return None
+
+    # "Mettiamo a BE le entrate più brutte" / "chiudere a BE le entry più alte"
+    # (08-09/10): il canale protegge a pareggio solo un gruppo di entry. Prima
+    # diventava CLOSE_SELECTIVE e chiudeva a mercato in perdita.
+    be_scope = match_selective_be_intent(upper) if not has_setup else None
+    if be_scope is not None:
+        be_price = _ivan_setup_entry(state.ivan_last_trade)
+        log.info(f"[IVAN] CHECK_AND_BE scope={be_scope} be_price={be_price}: {raw[:60]}")
+        signal = {
+            "action":      "CHECK_AND_BE",
+            "symbol":      "XAUUSD",
+            "tp_index":    1,
+            "scope":       be_scope,
+            "magic_base":  ch["magic_base"],
+            "raw_message": raw,
+        }
+        if be_price is not None:
+            signal["be_price"] = be_price
+        return signal
 
     # Un ordine di chiusura che nomina il rientro ("chiudo la rientry") non deve
     # passare dal ramo di apertura: il verbo di chiusura ha la precedenza.
@@ -2482,13 +2551,19 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
     sl = None
     # I setup arrivano sia multiriga ("TP 1 4006") sia su una riga sola con
     # separatori ("| TP1: 4596 | ... | SL: 4570"): i segmenti valgono uguale.
+    tp_slots: list[float | None] = []
     for line in re.split(r"[\n|]", raw):
         lu = strip_md(line).upper().strip()
-        m_tp = re.match(r"TP\s*\d*\s*[:.@]?\s*([\d.,]+)", lu)
+        m_tp = re.match(r"TP\s*\d?\s*[:.@]?\s*(\d[\d.,]{2,})", lu)
         if m_tp:
             v = pf(m_tp.group(1))
             if v is not None:
-                tps.append(v)
+                tp_slots.append(v)
+            continue
+        # "TP4: swing" / "TP4: open" (14/10): livello non numerico. Prima il
+        # "4" di "TP4" diventava il prezzo e il setup veniva scartato.
+        if re.match(r"TP\s*\d?\s*[:.@]?\s*\S", lu):
+            tp_slots.append(None)
             continue
         m_sl = re.match(r"SL\s*[:@]?\s*([\d.,]+)", lu)
         if m_sl:
@@ -2497,6 +2572,12 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
     if sl is None:
         log.debug(f"[IVAN] Segnale incompleto: {raw[:60]}")
         return None
+    tps = _ivan_fill_missing_tps(tp_slots, direction, entry, entry_range)
+    if None in tp_slots:
+        log.warning(
+            f"[IVAN] TP non interpretabile in {tp_slots}, livelli calcolati "
+            f"{tps} (TP_FALLBACK)"
+        )
     # "XAUUSD SELL 4313 | SL: 4327" (16/09): i TP arrivano con l'EDIT 2-3 minuti
     # dopo, quando il prezzo è già scappato. Il setup con solo SL apre subito
     # senza TP; l'UPDATE_OPEN successivo aggiunge i target.
@@ -2530,8 +2611,22 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         r"(?:META|MEZZA|HALF)\s*(?:SIZE|SAZIE)",
         folded,
     ) else 1.0
+    # "XAUUSD SELL 4171 … Reentry, si" (12/10): un setup completo che si
+    # dichiara rientro è una posizione in più sul setup aperto. Senza
+    # allow_stack l'EA lo trattava come modifica SL/TP del primo setup
+    # (SL peggiorato, rientro mai aperto). "Piccole size" dimezza il lotto.
+    # EDIT dello stesso messaggio di rientro: niente secondo stack (coerce →
+    # UPDATE_OPEN).
+    is_stack = bool(
+        state.ivan_last_trade
+        and _is_reentry_intent(upper)
+        and not _negation_precedes_reentry(folded)
+        and not _ivan_reentry_is_repeat(state.ivan_last_trade, entry)
+    )
+    if is_stack and lot_factor == 1.0:
+        lot_factor = _reduced_size_factor(upper) or 1.0
     log.info(
-        f"[IVAN] OPEN {direction} {symbol} "
+        f"[IVAN] OPEN{' (rientro, stack)' if is_stack else ''} {direction} {symbol} "
         f"{'range=' + str(entry_range) if entry_range else '@ ' + str(entry)} "
         f"TP={tps} SL={sl} lot_factor={lot_factor}"
     )
@@ -2546,6 +2641,8 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         "magic_base":  ch["magic_base"],
         "raw_message": raw,
     }
+    if is_stack:
+        signal["allow_stack"] = True
     if lot_factor != 1.0:
         signal["lot_factor"] = lot_factor
     state.set_ivan_last_trade({**signal, "setup_entry": _ivan_entry_ref(signal)})
