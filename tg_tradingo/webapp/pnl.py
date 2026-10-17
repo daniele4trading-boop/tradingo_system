@@ -13,30 +13,37 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-# EA ChannelShortTag / Moneta tags → bridge channel_id
-_TAG_TO_CH = {
-    "ORO": "CH_ORO",
-    "GOLD": "CH_GOLD",
-    "FOREX": "CH_FOREX",
-    "STARK": "CH_STARK",
-    "IVAN": "CH_IVAN",
-    "IT": "CH_IVAN",
-    "AS": "CH_STARK",
-    "CH_ORO": "CH_ORO",
-    "CH_GOLD": "CH_GOLD",
-    "CH_FOREX": "CH_FOREX",
-    "CH_STARK": "CH_STARK",
-    "CH_IVAN": "CH_IVAN",
-}
+def build_magic_map(channels_cfg: list[dict]) -> dict[int, str]:
+    """Costruisce {magic_prefix: channel_id} da tradingo_config channels."""
+    return {
+        int(ch["magic_base"]): ch["id"]
+        for ch in channels_cfg
+        if ch.get("magic_base") is not None and ch.get("id")
+    }
 
 
-def normalize_channel(raw: str | None) -> str:
+def normalize_channel(
+    raw: str | None,
+    magic: str | int | None = None,
+    magic_map: dict[int, str] | None = None,
+) -> str:
+    """Risolve canale: prima dal magic_number (fonte canonica), poi dal tag stringa."""
+    if magic_map and magic is not None:
+        try:
+            prefix = (int(float(magic)) // 1000) * 1000
+            ch = magic_map.get(prefix)
+            if ch:
+                return ch
+        except (ValueError, TypeError):
+            pass
     if not raw:
         return "?"
     key = raw.strip().upper()
     if key.startswith("CH_"):
         return key
-    return _TAG_TO_CH.get(key, key)
+    _LEGACY = {"ORO": "CH_ORO", "GOLD": "CH_GOLD", "FOREX": "CH_FOREX",
+                "STARK": "CH_STARK", "IVAN": "CH_IVAN", "IT": "CH_IVAN", "AS": "CH_STARK"}
+    return _LEGACY.get(key, key)
 
 
 def _parse_ts(ts: str | None) -> datetime | None:
@@ -169,7 +176,7 @@ def _finalize_bucket(b: dict[str, Any]) -> dict[str, Any]:
     return b
 
 
-def summarize_closed_pnl(trades: list[dict], windows_days: list[int]) -> dict[str, Any]:
+def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map: dict[int, str] | None = None) -> dict[str, Any]:
     """Per-channel closed PnL for each lookback window (1=today, 7, 30)."""
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
@@ -193,7 +200,7 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int]) -> dict[st
         if ts is None:
             continue
         age_days = (now.date() - ts.date()).days
-        ch = normalize_channel(row.get("channel") or row.get("channel_id"))
+        ch = normalize_channel(row.get("channel") or row.get("channel_id"), magic=row.get("magic"), magic_map=magic_map)
         vol = _f(row, "volume")
 
         for d in windows_days:
@@ -222,7 +229,7 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int]) -> dict[st
     }
 
 
-def open_positions(trades: list[dict]) -> list[dict]:
+def open_positions(trades: list[dict], magic_map: dict[int, str] | None = None) -> list[dict]:
     """OPEN rows whose ticket has no later CLOSE in the loaded set."""
     closed_tickets: set[str] = set()
     opens: dict[str, dict] = {}
@@ -246,7 +253,7 @@ def open_positions(trades: list[dict]) -> list[dict]:
             opens[ticket] = {
                 "ticket": ticket,
                 "signal_id": row.get("signal_id") or "",
-                "channel": normalize_channel(row.get("channel")),
+                "channel": normalize_channel(row.get("channel"), magic=row.get("magic"), magic_map=magic_map),
                 "symbol": row.get("symbol") or "",
                 "direction": row.get("direction") or "",
                 "volume": _f(row, "volume"),
@@ -311,7 +318,7 @@ def equity_series(rows: list[dict], max_points: int = 96) -> dict[str, Any]:
     return {"points": points, "latest": latest, "delta_today": delta}
 
 
-def exec_stats(stats_rows: list[dict]) -> dict[str, Any]:
+def exec_stats(stats_rows: list[dict], magic_map: dict[int, str] | None = None) -> dict[str, Any]:
     """Aggregate tradingo_signal_stats.csv by channel / status."""
     by_ch: dict[str, dict[str, int]] = defaultdict(
         lambda: {"executed": 0, "cancelled": 0, "other": 0}
@@ -319,7 +326,7 @@ def exec_stats(stats_rows: list[dict]) -> dict[str, Any]:
     totals = {"executed": 0, "cancelled": 0, "other": 0}
 
     for r in stats_rows:
-        ch = normalize_channel(r.get("channel_id") or r.get("channel"))
+        ch = normalize_channel(r.get("channel_id") or r.get("channel"), magic=r.get("magic"), magic_map=magic_map)
         status = (r.get("status") or "").upper()
         if "CANCEL" in status:
             key = "cancelled"
@@ -340,6 +347,7 @@ def build_phase2(
     lookback_days: int = 30,
     equity_days: int = 3,
     start_date: str | None = None,
+    magic_map: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Full Phase-2 payload for the dashboard API."""
     root = Path(ea_journal_dir) if ea_journal_dir else None
@@ -364,10 +372,10 @@ def build_phase2(
     stats_rows = load_signal_stats(stats_path)
 
     return {
-        "pnl": summarize_closed_pnl(trades, windows_days=[1, 7, 30]),
-        "open_positions": open_positions(trades),
+        "pnl": summarize_closed_pnl(trades, windows_days=[1, 7, 30], magic_map=magic_map),
+        "open_positions": open_positions(trades, magic_map=magic_map),
         "equity": equity_series(equity_rows),
-        "exec": exec_stats(stats_rows),
+        "exec": exec_stats(stats_rows, magic_map=magic_map),
         "sources": {
             "trades_dir": str(trades_dir) if trades_dir else None,
             "equity_dir": str(equity_dir) if equity_dir else None,
