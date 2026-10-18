@@ -210,6 +210,7 @@ def load_config(path: str | Path) -> Config:
                     risk_spread_mult_min=f.get("risk_spread_mult_min"),
                     range2_over_range1_min=f.get("range2_over_range1_min"),
                     range2_over_range1_max=f.get("range2_over_range1_max"),
+                    min_stop_distance=f.get("min_stop_distance"),
                 ),
                 tp_fallback_r=float(s.get("tp_fallback_r", 1.5)),
                 tp_min_r=float(s.get("tp_min_r", 0.5)),
