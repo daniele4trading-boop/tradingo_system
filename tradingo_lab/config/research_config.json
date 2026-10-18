@@ -1,0 +1,51 @@
+{
+  "symbol": "XAUUSD",
+  "broker": "XM",
+  "mt5": {
+    "terminal_path": null,
+    "login": null,
+    "password": null,
+    "server": null,
+    "initialize_timeout_ms": 60000
+  },
+  "storage": {
+    "root": "data",
+    "ticks_dir": "data/ticks",
+    "rates_dir": "data/rates",
+    "bars_dir": "data/bars",
+    "reports_dir": "data/reports"
+  },
+  "market": {
+    "expected_digits": 2,
+    "default_point": 0.01,
+    "target_points": 300,
+    "stop_points": 150,
+    "max_spread_points": 80
+  },
+  "sessions": {
+    "timezone": "Europe/Rome",
+    "kill_zones": [
+      {"name": "London Open", "start": "09:00", "end": "12:00"},
+      {"name": "NY Open", "start": "15:00", "end": "20:00"}
+    ]
+  },
+  "export": {
+    "tick_chunk_days": 1,
+    "rates_timeframe": "M1"
+  },
+  "features": {
+    "rsi_period": 14,
+    "ema_fast": 20,
+    "ema_mid": 50,
+    "ema_slow": 200,
+    "atr_period": 14,
+    "adx_period": 14,
+    "momentum_period": 10,
+    "vwap_period": 20
+  },
+  "backtest": {
+    "horizon_bars": 60,
+    "slippage_points": 5,
+    "commission_per_lot_round_turn": 0.0
+  }
+}

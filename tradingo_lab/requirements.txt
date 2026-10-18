@@ -1,0 +1,8 @@
+MetaTrader5
+pandas
+numpy
+pyarrow
+scikit-learn
+optuna
+matplotlib
+plotly

@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Historical market data and generated reports are local artifacts.
+data/ticks/**
+data/rates/**
+data/bars/**
+data/reports/**
+data/metadata/**
+reports/**
+
+!.gitignore
+!data/ticks/.gitkeep
+!data/rates/.gitkeep
+!data/bars/.gitkeep
+!data/reports/.gitkeep
