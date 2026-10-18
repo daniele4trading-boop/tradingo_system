@@ -1,0 +1,56 @@
+{
+  "profiles": {
+    "XM_DEMO": {
+      "login": 0,
+      "password": "",
+      "server": "XMGlobal-MT5 7",
+      "path": "C:\\MT5_XM\\terminal64.exe"
+    },
+    "VT_DEMO": {
+      "login": 0,
+      "password": "",
+      "server": "VTMarkets-Demo",
+      "path": "C:\\MT5_VTMarkets\\terminal64.exe"
+    },
+    "VANTAGE_DEMO": {
+      "login": 0,
+      "password": "",
+      "server": "VantageInternational-Demo",
+      "path": "C:\\MT5_Vantage\\terminal64.exe"
+    }
+  },
+  "roles": {
+    "data_source": "XM_DEMO",
+    "leg_A": "VT_DEMO",
+    "leg_B": "VANTAGE_DEMO"
+  },
+  "symbol_map": {
+    "XM_DEMO": {
+      "XAUUSD": "GOLD",
+      "XAGUSD": "SILVER",
+      "US500": "US500Cash",
+      "US30": "US30Cash",
+      "NAS100": "USTECCash",
+      "GER40": "GER40Cash",
+      "EU50": "EU50Cash"
+    },
+    "VT_DEMO": {
+      "XAUUSD": "XAUUSD",
+      "XAGUSD": "XAGUSD",
+      "US500": "SP500",
+      "US30": "DJ30",
+      "NAS100": "NAS100",
+      "GER40": "DAX40",
+      "EU50": "STOXX50"
+    },
+    "VANTAGE_DEMO": {
+      "XAUUSD": "XAUUSD",
+      "XAGUSD": "XAGUSD",
+      "US500": "SP500",
+      "US30": "DJ30",
+      "NAS100": "NAS100",
+      "GER40": "GER40",
+      "EU50": "STOXX50E"
+    }
+  }
+}

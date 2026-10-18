@@ -1,0 +1,41 @@
+{
+  "data": {
+    "structural_timeframe": "H4",
+    "structural_lookback_days": 365,
+    "trigger_timeframe_default": "H1",
+    "trigger_timeframe_indices": "M15",
+    "trigger_lookback_days": 120
+  },
+  "selection": {
+    "correlation_prefilter": 0.70,
+    "adf_pvalue_max": 0.05,
+    "require_two_window_validation": true,
+    "bonferroni_correction": true,
+    "halflife_min_hours": 2,
+    "halflife_max_hours": 240
+  },
+  "timeframe_rules": {
+    "halflife_under_hours_to_m15": 6,
+    "halflife_under_hours_to_h1": 48
+  },
+  "signals": {
+    "zscore_lookback_multiplier": 1.5,
+    "entry_z": 2.0,
+    "exit_z": 0.5,
+    "stop_z": 3.5,
+    "time_stop_halflife_mult": 3.0
+  },
+  "risk": {
+    "risk_per_trade_pct": 0.5,
+    "max_concurrent_pairs": 4,
+    "max_pairs_sharing_leg": 1,
+    "per_account_daily_loss_pct": 4.0,
+    "per_account_max_dd_pct": 8.0,
+    "margin_floor_pct": 200.0
+  },
+  "costs": {
+    "model_spread": true,
+    "model_commission_per_lot": 7.0,
+    "model_swap": true
+  }
+}
