@@ -1,0 +1,19 @@
+{
+  "action": "UPDATE_OPEN",
+  "direction": "SELL",
+  "symbol": "XAUUSD",
+  "entry": null,
+  "entry_range": [4059.0, 4066.0],
+  "tp_levels": [4052.0, 4035.0],
+  "sl": 4076.0,
+  "magic_base": 12000,
+  "timestamp": "2026-08-03T00:45:59Z",
+  "channel_id": "CH_GOLD",
+  "channel_name": "Sala GOLD VIP",
+  "event_type": "NEW",
+  "signal_id": "0448ae351d",
+  "use_fixed_lot": true,
+  "trades": 2,
+  "fixed_lot": 0.1,
+  "splits": [0.5, 0.5]
+}
