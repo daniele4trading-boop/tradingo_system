@@ -1,0 +1,29 @@
+{
+  "state_file": "C:\\TG_TradinGo\\state\\watchdog_state.json",
+  "alert_command": null,
+
+  "services": [
+    {
+      "name": "tradingo_bridge",
+      "enabled": true,
+      "process_match": "tradingo_bridge\\.py",
+      "start_command": ["cmd", "/c", "C:\\TG_TradinGo\\run_bridge_task.cmd"],
+      "working_dir": "C:\\TG_TradinGo",
+      "heartbeat_file": "C:\\TG_TradinGo\\signals\\tradingo_heartbeat.json",
+      "heartbeat_field": "ts_utc",
+      "max_age_sec": 180,
+      "grace_sec": 120,
+      "max_restarts_per_hour": 4
+    },
+    {
+      "name": "webapp_monitor",
+      "enabled": false,
+      "process_match": "webapp",
+      "start_command": ["cmd", "/c", "C:\\TG_TradinGo\\start_webapp.bat"],
+      "working_dir": "C:\\TG_TradinGo",
+      "max_age_sec": 300,
+      "grace_sec": 60,
+      "max_restarts_per_hour": 4
+    }
+  ]
+}

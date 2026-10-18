@@ -69,6 +69,7 @@ signal_ch_*.json  (uno per canale)
 - `start_tradingo.bat` — avvio bridge
 - `webapp/` — dashboard monitor mobile (FastAPI, porta 8600 via Tailscale) — vedi `docs/WEBAPP.md`
 - `start_webapp.bat` — avvio webapp monitor
+- `service_watchdog.py` — supervisore: processo vivo **e** heartbeat fresco, con anti-flapping — vedi `docs/WATCHDOG.md`
 - `README.md` — guida operativa
 
 ### Config (NON versionare segreti)
