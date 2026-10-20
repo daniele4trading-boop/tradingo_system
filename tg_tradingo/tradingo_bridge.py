@@ -49,6 +49,7 @@ from ivan_interpreter import (
     InterpreterConfig,
     IvanInterpreter,
     IvanMessageBuffer,
+    describe_signal,
     interpretation_to_signal,
     is_urgent,
 )
@@ -3298,8 +3299,12 @@ async def run_bridge():
             if not pending or not context:
                 return
             last_trade = bridge_state.ivan_last_trade
-            res = await asyncio.to_thread(interp.interpret, context, last_trade)
+            res = await asyncio.to_thread(
+                interp.interpret, context, last_trade, buf.executed(now)
+            )
             signal = interpretation_to_signal(res, ch_cfg, last_trade, context[-1])
+            if signal:
+                buf.mark_executed(now, describe_signal(signal))
             append_bridge_event(CONFIG, {
                 "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "channel_id": ch_cfg["id"],
@@ -3450,6 +3455,14 @@ async def run_bridge():
             # valuta nel contesto dei messaggi precedenti dopo un breve debounce.
             # In shadow logga soltanto; in live sostituisce il parser legacy per
             # le azioni di gestione (BE/chiusure/SL/TP), mai per i setup.
+            if (
+                int(chat_id) in ivan_llm
+                and not is_edit
+                and ivan_is_setup_text(strip_md(text).upper())
+                and signal
+                and signal.get("action") == "OPEN"
+            ):
+                ivan_llm[int(chat_id)][2].reset()  # nuovo setup: contesto nuovo
             if (
                 int(chat_id) in ivan_llm
                 and not is_edit

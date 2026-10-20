@@ -113,3 +113,18 @@ def test_urgent_and_config_from_channel():
 def test_prompt_without_setup():
     p = build_user_prompt(["ciao"], None)
     assert "nessuno noto" in p and "[1] ciao" in p
+
+
+def test_executed_action_leaves_context_and_is_passed_to_prompt():
+    buf = IvanMessageBuffer(window_sec=300)
+    buf.push(1000.0, 1, "Chiudiamo ORA")
+    ctx, _ = buf.take_pending(1000.0)
+    buf.mark_executed(1000.0, "CLOSE_ALL_SYMBOL")
+    buf.push(1020.0, 2, "Non ha mosso nulla")
+    ctx, pending = buf.take_pending(1045.0)
+    assert ctx == ["Non ha mosso nulla"] and pending == [2]
+    assert buf.executed(1045.0) == ["CLOSE_ALL_SYMBOL"]
+    p = build_user_prompt(ctx, TRADE, buf.executed(1045.0))
+    assert "AZIONI GIÀ ESEGUITE" in p and "CLOSE_ALL_SYMBOL" in p
+    buf.reset()
+    assert buf.executed(1045.0) == []

@@ -72,6 +72,11 @@ Regole:
 - Un nuovo setup completo (BUY/SELL con prezzo, SL e TP) NON è compito tuo: rispondi NONE.
 - Se i messaggi si contraddicono, vale l'ultimo. Se un messaggio precisa il precedente
   ("e lasciamo con stop originale le migliori"), combinali in un'unica azione.
+- Messaggi che RACCONTANO cosa è già successo ("BE preso", "BE HIT dopo TP2", "TP1 HIT", "-60 pips", "chiuso")
+  o la posizione personale di Ivan ("io ho BE a 4116", "io sono già fuori") sono informazioni, NON ordini: NONE.
+- "Pronti a chiudere se ve lo dico", "se torna su chiudiamo" sono avvisi condizionali, non ordini: WAIT.
+- Se sotto AZIONI GIÀ ESEGUITE compare un'azione, i messaggi che la commentano o la ripetono sono NONE:
+  rispondi con un'azione solo se l'ULTIMO messaggio contiene un'istruzione NUOVA.
 - Nel dubbio rispondi NONE con confidenza bassa: non eseguire è meglio di eseguire male.
 - Rispondi SOLO con un oggetto JSON: {"action": ..., "scope": ..., "keep": ..., "price": ..., "tp_index": ...,
   "confidence": 0.0-1.0, "reason": "breve motivazione in italiano"}. Campi non pertinenti: null."""
@@ -156,7 +161,9 @@ def is_urgent(text: str) -> bool:
     return bool(_URGENT_RE.search(text.upper()))
 
 
-def build_user_prompt(messages: list[str], last_trade: dict | None) -> str:
+def build_user_prompt(
+    messages: list[str], last_trade: dict | None, executed: list[str] | None = None,
+) -> str:
     lines = []
     if last_trade:
         tps = last_trade.get("tp_levels") or []
@@ -170,6 +177,8 @@ def build_user_prompt(messages: list[str], last_trade: dict | None) -> str:
         )
     else:
         lines.append("SETUP APERTO: nessuno noto")
+    if executed:
+        lines.append("AZIONI GIÀ ESEGUITE su questo setup (dalla più vecchia): " + "; ".join(executed))
     lines.append("MESSAGGI RECENTI (dal più vecchio al più nuovo):")
     for i, m in enumerate(messages, 1):
         lines.append(f"[{i}] {m.strip()}")
@@ -223,11 +232,14 @@ class IvanInterpreter:
         self.cfg = cfg
         self._complete = completer or anthropic_complete
 
-    def interpret(self, messages: list[str], last_trade: dict | None) -> Interpretation:
+    def interpret(
+        self, messages: list[str], last_trade: dict | None,
+        executed: list[str] | None = None,
+    ) -> Interpretation:
         msgs = [m for m in messages if m and m.strip()][-self.cfg.context_messages:]
         if not msgs:
             return Interpretation()
-        prompt = build_user_prompt(msgs, last_trade)
+        prompt = build_user_prompt(msgs, last_trade, executed)
         try:
             text = self._complete(SYSTEM_PROMPT, prompt, self.cfg)
             result = Interpretation.from_model_json(_extract_json(text))
@@ -302,6 +314,7 @@ class IvanMessageBuffer:
         self.window_sec = window_sec
         self._history: list[tuple[float, int, str]] = []
         self._pending_ids: list[int] = []
+        self._executed: list[tuple[float, str]] = []
 
     def push(self, ts: float, message_id: int, text: str) -> None:
         self._history = [h for h in self._history if h[1] != message_id]
@@ -321,6 +334,26 @@ class IvanMessageBuffer:
         self._pending_ids.clear()
         return self.context(now), pending
 
+    def executed(self, now: float) -> list[str]:
+        return [d for ts, d in self._executed if now - ts <= self.window_sec]
+
+    def mark_executed(self, now: float, description: str) -> None:
+        """Azione emessa: i messaggi che l'hanno prodotta escono dal contesto
+        (non devono ri-generarla) e restano solo come "già eseguito"."""
+        self._history.clear()
+        self._pending_ids.clear()
+        self._executed = [(ts, d) for ts, d in self._executed if now - ts <= self.window_sec]
+        self._executed.append((now, description))
+
     def reset(self) -> None:
         self._history.clear()
         self._pending_ids.clear()
+        self._executed.clear()
+
+
+def describe_signal(sig: dict) -> str:
+    parts = [str(sig.get("action"))]
+    for k in ("scope", "keep", "new_sl", "new_tp", "tp_index"):
+        if sig.get(k) is not None:
+            parts.append(f"{k}={sig[k]}")
+    return " ".join(parts)
