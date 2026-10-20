@@ -119,12 +119,24 @@ def test_executed_action_leaves_context_and_is_passed_to_prompt():
     buf = IvanMessageBuffer(window_sec=300)
     buf.push(1000.0, 1, "Chiudiamo ORA")
     ctx, _ = buf.take_pending(1000.0)
-    buf.mark_executed(1000.0, "CLOSE_ALL_SYMBOL")
+    buf.mark_executed(1000.0, "CHECK_AND_BE scope=WORST")
     buf.push(1020.0, 2, "Non ha mosso nulla")
     ctx, pending = buf.take_pending(1045.0)
     assert ctx == ["Non ha mosso nulla"] and pending == [2]
-    assert buf.executed(1045.0) == ["CLOSE_ALL_SYMBOL"]
+    assert buf.executed(1045.0) == ["CHECK_AND_BE scope=WORST"]
     p = build_user_prompt(ctx, TRADE, buf.executed(1045.0))
-    assert "AZIONI GIÀ ESEGUITE" in p and "CLOSE_ALL_SYMBOL" in p
+    assert "AZIONI GIÀ ESEGUITE" in p and "CHECK_AND_BE" in p
     buf.reset()
     assert buf.executed(1045.0) == []
+
+
+def test_after_close_all_buffer_is_mute_until_new_setup():
+    buf = IvanMessageBuffer(window_sec=300)
+    buf.push(1000.0, 1, "Chiudiamo ORA")
+    buf.take_pending(1000.0)
+    buf.mark_executed(1000.0, "CLOSE_ALL_SYMBOL")
+    buf.push(1400.0, 2, "Testa a domani")
+    assert buf.take_pending(1430.0) == ([], [])
+    buf.reset()
+    buf.push(2000.0, 3, "Spostiamo SL a BE")
+    assert buf.take_pending(2030.0)[1] == [3]

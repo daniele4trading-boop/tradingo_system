@@ -315,6 +315,7 @@ class IvanMessageBuffer:
         self._history: list[tuple[float, int, str]] = []
         self._pending_ids: list[int] = []
         self._executed: list[tuple[float, str]] = []
+        self.flat = False
 
     def push(self, ts: float, message_id: int, text: str) -> None:
         self._history = [h for h in self._history if h[1] != message_id]
@@ -330,6 +331,9 @@ class IvanMessageBuffer:
         return [t for ts, _, t in self._history if now - ts <= self.window_sec]
 
     def take_pending(self, now: float) -> tuple[list[str], list[int]]:
+        if self.flat:
+            self._pending_ids.clear()
+            return [], []
         pending = list(self._pending_ids)
         self._pending_ids.clear()
         return self.context(now), pending
@@ -344,11 +348,14 @@ class IvanMessageBuffer:
         self._pending_ids.clear()
         self._executed = [(ts, d) for ts, d in self._executed if now - ts <= self.window_sec]
         self._executed.append((now, description))
+        if description.startswith("CLOSE_ALL_SYMBOL"):
+            self.flat = True  # niente più posizioni: muto fino al prossimo setup
 
     def reset(self) -> None:
         self._history.clear()
         self._pending_ids.clear()
         self._executed.clear()
+        self.flat = False
 
 
 def describe_signal(sig: dict) -> str:
