@@ -13,30 +13,37 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-# EA ChannelShortTag / Moneta tags → bridge channel_id
-_TAG_TO_CH = {
-    "ORO": "CH_ORO",
-    "GOLD": "CH_GOLD",
-    "FOREX": "CH_FOREX",
-    "STARK": "CH_STARK",
-    "IVAN": "CH_IVAN",
-    "IT": "CH_IVAN",
-    "AS": "CH_STARK",
-    "CH_ORO": "CH_ORO",
-    "CH_GOLD": "CH_GOLD",
-    "CH_FOREX": "CH_FOREX",
-    "CH_STARK": "CH_STARK",
-    "CH_IVAN": "CH_IVAN",
-}
+def build_magic_map(channels_cfg: list[dict]) -> dict[int, str]:
+    """Costruisce {magic_prefix: channel_id} da tradingo_config channels."""
+    return {
+        int(ch["magic_base"]): ch["id"]
+        for ch in channels_cfg
+        if ch.get("magic_base") is not None and ch.get("id")
+    }
 
 
-def normalize_channel(raw: str | None) -> str:
+def normalize_channel(
+    raw: str | None,
+    magic: str | int | None = None,
+    magic_map: dict[int, str] | None = None,
+) -> str:
+    """Risolve canale: prima dal magic_number (fonte canonica), poi dal tag stringa."""
+    if magic_map and magic is not None:
+        try:
+            prefix = (int(float(magic)) // 1000) * 1000
+            ch = magic_map.get(prefix)
+            if ch:
+                return ch
+        except (ValueError, TypeError):
+            pass
     if not raw:
         return "?"
     key = raw.strip().upper()
     if key.startswith("CH_"):
         return key
-    return _TAG_TO_CH.get(key, key)
+    _LEGACY = {"ORO": "CH_ORO", "GOLD": "CH_GOLD", "FOREX": "CH_FOREX",
+                "STARK": "CH_STARK", "IVAN": "CH_IVAN", "IT": "CH_IVAN", "AS": "CH_STARK"}
+    return _LEGACY.get(key, key)
 
 
 def _parse_ts(ts: str | None) -> datetime | None:
@@ -158,7 +165,55 @@ def _empty_bucket() -> dict[str, Any]:
         "losses": 0,
         "win_rate": None,
         "volume": 0.0,
+        "pnl_norm": 0.0,
+        "pips": 0.0,
+        "signals": 0,
+        "signal_wins": 0,
+        "signal_win_rate": None,
+        "_sig": {},
     }
+
+
+NORM_LOT = 0.01
+
+
+def pip_size(symbol: str | None) -> float:
+    """Pip convenzionale = 10 point. XAU 0.1, JPY 0.01, forex 0.0001, BTC 0.1 (point 0.01)."""
+    s = (symbol or "").upper()
+    if s.startswith(("XAU", "GOLD")):
+        return 0.1
+    if s.startswith(("XAG", "SILVER")):
+        return 0.01
+    if s.startswith(("BTC", "ETH")):
+        return 0.1
+    if "JPY" in s:
+        return 0.01
+    return 0.0001
+
+
+def trade_pips(row: dict) -> float:
+    """Pips realizzati (positivi se in guadagno) da prezzo di ingresso e chiusura."""
+    entry = _f(row, "fill", "entry_price", "req_entry")
+    close = _f(row, "close_price")
+    if not entry or not close:
+        return 0.0
+    move = close - entry
+    if (row.get("direction") or "").upper() == "SELL":
+        move = -move
+    return move / pip_size(row.get("symbol"))
+
+
+def _signal_key(row: dict) -> str:
+    return str(row.get("signal_id") or row.get("ticket") or id(row))
+
+
+def signal_volumes(trades: list[dict]) -> dict[str, float]:
+    """Volume totale chiuso per segnale (somma dei TP)."""
+    out: dict[str, float] = defaultdict(float)
+    for row in trades:
+        if (row.get("event") or "").upper() == "CLOSE":
+            out[_signal_key(row)] += _f(row, "volume")
+    return out
 
 
 def _finalize_bucket(b: dict[str, Any]) -> dict[str, Any]:
@@ -166,10 +221,16 @@ def _finalize_bucket(b: dict[str, Any]) -> dict[str, Any]:
     b["pnl"] = round(b["pnl"], 2)
     b["volume"] = round(b["volume"], 2)
     b["win_rate"] = round(100.0 * b["wins"] / n, 1) if n else None
+    sig = b.pop("_sig", {})
+    b["signals"] = len(sig)
+    b["signal_wins"] = sum(1 for v in sig.values() if v > 0)
+    b["signal_win_rate"] = round(100.0 * b["signal_wins"] / len(sig), 1) if sig else None
+    b["pnl_norm"] = round(b["pnl_norm"], 2)
+    b["pips"] = round(b["pips"], 1)
     return b
 
 
-def summarize_closed_pnl(trades: list[dict], windows_days: list[int]) -> dict[str, Any]:
+def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map: dict[int, str] | None = None) -> dict[str, Any]:
     """Per-channel closed PnL for each lookback window (1=today, 7, 30)."""
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
@@ -179,6 +240,7 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int]) -> dict[st
         lambda: {f"d{d}": _empty_bucket() for d in windows_days}
     )
     totals = {f"d{d}": _empty_bucket() for d in windows_days}
+    sig_vol = signal_volumes(trades)
 
     for row in trades:
         ev = (row.get("event") or "").upper()
@@ -193,8 +255,14 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int]) -> dict[st
         if ts is None:
             continue
         age_days = (now.date() - ts.date()).days
-        ch = normalize_channel(row.get("channel") or row.get("channel_id"))
+        ch = normalize_channel(row.get("channel") or row.get("channel_id"), magic=row.get("magic"), magic_map=magic_map)
         vol = _f(row, "volume")
+        # Peso del TP nel segnale: P&L e pips riportati a un segnale da NORM_LOT lotti.
+        key = _signal_key(row)
+        svol = sig_vol.get(key) or vol
+        share = vol / svol if svol > 0 else 0.0
+        pnl_norm = pnl * NORM_LOT / svol if svol > 0 else 0.0
+        pips = trade_pips(row) * share
 
         for d in windows_days:
             if age_days >= d:
@@ -207,6 +275,9 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int]) -> dict[st
                 bucket["pnl"] += pnl
                 bucket["trades"] += 1
                 bucket["volume"] += vol
+                bucket["pnl_norm"] += pnl_norm
+                bucket["pips"] += pips
+                bucket["_sig"][key] = bucket["_sig"].get(key, 0.0) + pnl
                 if pnl > 0:
                     bucket["wins"] += 1
                 elif pnl < 0:
@@ -222,7 +293,7 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int]) -> dict[st
     }
 
 
-def open_positions(trades: list[dict]) -> list[dict]:
+def open_positions(trades: list[dict], magic_map: dict[int, str] | None = None) -> list[dict]:
     """OPEN rows whose ticket has no later CLOSE in the loaded set."""
     closed_tickets: set[str] = set()
     opens: dict[str, dict] = {}
@@ -246,7 +317,7 @@ def open_positions(trades: list[dict]) -> list[dict]:
             opens[ticket] = {
                 "ticket": ticket,
                 "signal_id": row.get("signal_id") or "",
-                "channel": normalize_channel(row.get("channel")),
+                "channel": normalize_channel(row.get("channel"), magic=row.get("magic"), magic_map=magic_map),
                 "symbol": row.get("symbol") or "",
                 "direction": row.get("direction") or "",
                 "volume": _f(row, "volume"),
@@ -311,7 +382,7 @@ def equity_series(rows: list[dict], max_points: int = 96) -> dict[str, Any]:
     return {"points": points, "latest": latest, "delta_today": delta}
 
 
-def exec_stats(stats_rows: list[dict]) -> dict[str, Any]:
+def exec_stats(stats_rows: list[dict], magic_map: dict[int, str] | None = None) -> dict[str, Any]:
     """Aggregate tradingo_signal_stats.csv by channel / status."""
     by_ch: dict[str, dict[str, int]] = defaultdict(
         lambda: {"executed": 0, "cancelled": 0, "other": 0}
@@ -319,7 +390,7 @@ def exec_stats(stats_rows: list[dict]) -> dict[str, Any]:
     totals = {"executed": 0, "cancelled": 0, "other": 0}
 
     for r in stats_rows:
-        ch = normalize_channel(r.get("channel_id") or r.get("channel"))
+        ch = normalize_channel(r.get("channel_id") or r.get("channel"), magic=r.get("magic"), magic_map=magic_map)
         status = (r.get("status") or "").upper()
         if "CANCEL" in status:
             key = "cancelled"
@@ -340,6 +411,7 @@ def build_phase2(
     lookback_days: int = 30,
     equity_days: int = 3,
     start_date: str | None = None,
+    magic_map: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Full Phase-2 payload for the dashboard API."""
     root = Path(ea_journal_dir) if ea_journal_dir else None
@@ -364,10 +436,10 @@ def build_phase2(
     stats_rows = load_signal_stats(stats_path)
 
     return {
-        "pnl": summarize_closed_pnl(trades, windows_days=[1, 7, 30]),
-        "open_positions": open_positions(trades),
+        "pnl": summarize_closed_pnl(trades, windows_days=[1, 7, 30], magic_map=magic_map),
+        "open_positions": open_positions(trades, magic_map=magic_map),
         "equity": equity_series(equity_rows),
-        "exec": exec_stats(stats_rows),
+        "exec": exec_stats(stats_rows, magic_map=magic_map),
         "sources": {
             "trades_dir": str(trades_dir) if trades_dir else None,
             "equity_dir": str(equity_dir) if equity_dir else None,
