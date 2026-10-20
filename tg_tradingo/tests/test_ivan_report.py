@@ -154,6 +154,36 @@ def test_build_setups_groups_followups_and_late_edit(workspace):
     assert c.from_edit and c.entry == 4316.0
 
 
+def test_stale_edit_and_levels_only(tmp_path):
+    rows = [
+        _ev(0, "s1", "OPEN", _open_payload(), text="BUY 4300", message_id=10),
+        # refuso di zona scartato dal bridge: solo SL/TP alle posizioni aperte, non è un setup
+        _ev(60, "s2", "UPDATE_OPEN",
+            _open_payload(entry=None, tps=(4306.0, 4309.0, 4312.0, 4320.0), sl=4291.0, levels_only=True),
+            text="BUY 4401-3399", event_type="EDIT", message_id=11),
+        # EDIT di un post del 2024 riemesso come OPEN
+        _ev(3600, "s3", "UPDATE_OPEN",
+            _open_payload(entry=None, entry_range=[2167.0, 2170.0], tps=(2172.0,), sl=2164.0,
+                          telegram_date="2024-03-25T11:44:58Z"),
+            text="Gold buy 2170-2167", event_type="EDIT", message_id=20),
+        # messaggio completato con EDIT pochi secondi dopo: apertura legittima
+        _ev(7200, "s4", "UPDATE_OPEN", _open_payload(entry=4316.0, telegram_date=_ts(7190)),
+            text="SELL 4316", event_type="EDIT", message_id=30),
+    ]
+    f = tmp_path / "events_20260923.jsonl"
+    f.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    setups = ir.build_setups(ir.load_events_jsonl([f]))
+    assert [s.sid for s in setups] == ["s1", "s3", "s4"]
+    s1, s3, s4 = setups
+    assert s1.final_tps == [4306.0, 4309.0, 4312.0, 4320.0] and s1.final_sl == 4291.0
+    assert s3.stale_edit and s3.edit_age.days > 800 and "stantio" in s3.label()
+    assert s4.from_edit and not s4.stale_edit and s4.edit_age == dt.timedelta(seconds=10)
+    issues = ir.find_issues(setups, [], [], {})
+    kinds = {i.setup.sid: i.kind for i in issues if i.setup.sid in ("s3", "s4")}
+    assert "stantio" in kinds["s3"] and "EDIT" in kinds["s4"]
+    assert not any(i.kind.startswith("stantio") for i in issues if i.setup.sid == "s4")
+
+
 def test_legs_outcomes_and_server_offset(workspace):
     events = ir.load_events_jsonl([workspace["events"] / "events_20260923.jsonl"])
     setups = ir.build_setups(events)
@@ -195,7 +225,7 @@ def test_run_end_to_end_writes_reports_and_issues(workspace):
         assert (out / name).exists(), name
     kinds = {i.kind for i in res["issues"]}
     assert "esecuzione disomogenea" in kinds
-    assert "apertura da EDIT di vecchio messaggio" in kinds
+    assert "apertura via EDIT (messaggio completato dopo la pubblicazione)" in kinds
     assert "chiusura manuale (magic 0)" in kinds
     assert "TP spostato non recepito" in kinds   # T3 chiuso a 4312 dopo l'update a 4314
     assert "BE non applicato" not in kinds       # lo SL pieno di B e' arrivato senza messaggio BE
