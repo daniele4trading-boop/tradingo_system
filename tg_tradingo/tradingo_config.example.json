@@ -103,6 +103,15 @@
       "parser": "ivan_vip",
       "signal_file": "signal_ch_ivan.json",
       "magic_base": 17000,
+      "interpreter": {
+        "enabled": false,
+        "shadow": true,
+        "model": "claude-sonnet-4-5",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "min_confidence": 0.75,
+        "debounce_sec": 25,
+        "notes": "Interprete LLM dei messaggi di gestione (BE/chiusure). shadow=true logga soltanto."
+      },
       "execution": {
         "mode": "fixed_lot",
         "fixed_lot_single": 0.2,
