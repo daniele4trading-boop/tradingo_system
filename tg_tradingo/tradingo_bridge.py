@@ -45,6 +45,14 @@ from bridge_core import (
     validate_signal,
 )
 from bridge_journal import append_bridge_event, write_heartbeat
+from ivan_interpreter import (
+    InterpreterConfig,
+    IvanInterpreter,
+    IvanMessageBuffer,
+    describe_signal,
+    interpretation_to_signal,
+    is_urgent,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -67,7 +75,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.32"
+BRIDGE_VERSION = "2.33"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -2344,6 +2352,11 @@ def _ivan_fill_missing_tps(
     return [v for v in out if v is not None]
 
 
+def ivan_is_setup_text(upper: str) -> bool:
+    """Setup completo (direzione+prezzo+SL): resta al parser deterministico."""
+    return bool(re.search(_IVAN_OPEN_RE, upper) and re.search(r"\bSL\b", upper))
+
+
 def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> dict | None:
     if state is None:
         state, _ = _ensure_runtime()
@@ -2356,10 +2369,7 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
     # Gli ignore DEVONO precedere il recognizer di chiusura (frasi preparatorie),
     # ma non devono coprire un setup completo: "TAKE PROFIT"/"TP n" compaiono sia
     # nei commenti sia nei segnali veri.
-    has_setup = bool(
-        re.search(_IVAN_OPEN_RE, upper)
-        and re.search(r"\bSL\b", upper)
-    )
+    has_setup = ivan_is_setup_text(upper)
     # "Spostiamo il take profit 4 a 4376" è un ordine, non il commento che
     # l'ignore "TAKE PROFIT" intercetta: la forma con verbo esplicito passa.
     has_move_tp_cmd = match_move_tp_price(upper, require_verb=True) is not None
@@ -3257,6 +3267,83 @@ async def run_bridge():
     for cid, cfg in channel_map.items():
         log.info(f"  {cfg['id']} [{cid}] {cfg['name']} (parser: {cfg['parser']})")
 
+    # Interprete LLM per i messaggi di gestione IVAN (config canale "interpreter").
+    ivan_llm: dict[int, tuple[InterpreterConfig, IvanInterpreter, IvanMessageBuffer]] = {}
+    ivan_llm_tasks: dict[int, asyncio.Task] = {}
+    for cid, cfg in channel_map.items():
+        if cfg["parser"] != "ivan_vip":
+            continue
+        icfg = InterpreterConfig.from_channel(cfg)
+        if not icfg.enabled:
+            continue
+        if not os.environ.get(icfg.api_key_env):
+            log.warning(
+                f"  {cfg['id']} interpreter abilitato ma {icfg.api_key_env} assente: disattivato"
+            )
+            continue
+        ivan_llm[cid] = (icfg, IvanInterpreter(icfg), IvanMessageBuffer())
+        log.info(
+            f"  {cfg['id']} interpreter LLM {icfg.model} "
+            f"mode={'shadow' if icfg.shadow else 'LIVE'} debounce={icfg.debounce_sec}s "
+            f"min_conf={icfg.min_confidence}"
+        )
+
+    async def ivan_llm_evaluate(cid: int, ch_cfg: dict, meta: dict, delay: float):
+        """Dopo il debounce valuta l'insieme dei messaggi in attesa."""
+        icfg, interp, buf = ivan_llm[cid]
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            now = time.time()
+            context, pending = buf.take_pending(now)
+            if not pending or not context:
+                return
+            last_trade = bridge_state.ivan_last_trade
+            res = await asyncio.to_thread(
+                interp.interpret, context, last_trade, buf.executed(now)
+            )
+            signal = interpretation_to_signal(res, ch_cfg, last_trade, context[-1])
+            if signal:
+                buf.mark_executed(now, describe_signal(signal))
+            append_bridge_event(CONFIG, {
+                "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "channel_id": ch_cfg["id"],
+                "chat_id": cid,
+                "message_id": pending[-1],
+                "event_type": "LLM",
+                "raw_text": " | ".join(context[-3:]),
+                "outcome": ("LLM_SHADOW" if icfg.shadow else "LLM_EMITTED") if signal else "LLM_NONE",
+                "action": (signal or {}).get("action"),
+                "payload": signal,
+                "llm": res.raw,
+            })
+            if not signal:
+                return
+            if icfg.shadow:
+                log.info(
+                    f"[IVAN_LLM shadow] would -> {signal['action']} "
+                    f"scope={signal.get('scope')} keep={signal.get('keep')} "
+                    f"new_sl={signal.get('new_sl')} new_tp={signal.get('new_tp')}"
+                )
+                return
+            meta = {**meta, "message_id": pending[-1], "event_type": "LLM"}
+            if write_signal(ch_cfg, signal, meta):
+                log.info(f"[IVAN_LLM] EMESSO {signal['action']} ({res.reason[:60]})")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.error(f"[IVAN_LLM] errore: {e}\n{traceback.format_exc()}")
+
+    def ivan_llm_schedule(cid: int, ch_cfg: dict, meta: dict, text: str):
+        icfg, _, _ = ivan_llm[cid]
+        prev = ivan_llm_tasks.get(cid)
+        if prev and not prev.done():
+            prev.cancel()  # nuovo messaggio: si rivaluta l'insieme
+        delay = 0.0 if is_urgent(text) else float(icfg.debounce_sec)
+        ivan_llm_tasks[cid] = asyncio.create_task(
+            ivan_llm_evaluate(cid, ch_cfg, meta, delay)
+        )
+
     # Inizializza file segnale vuoti (never crash the bridge if a UNC share is down)
     for mt5_path in get_mt5_paths():
         for cfg in channel_map.values():
@@ -3363,6 +3450,40 @@ async def run_bridge():
                 raise
 
             signal = coerce_edit_open_to_update(signal, is_edit)
+
+            # Messaggi di gestione IVAN (no setup numerico): l'interprete LLM li
+            # valuta nel contesto dei messaggi precedenti dopo un breve debounce.
+            # In shadow logga soltanto; in live sostituisce il parser legacy per
+            # le azioni di gestione (BE/chiusure/SL/TP), mai per i setup.
+            if (
+                int(chat_id) in ivan_llm
+                and not is_edit
+                and ivan_is_setup_text(strip_md(text).upper())
+                and signal
+                and signal.get("action") == "OPEN"
+            ):
+                ivan_llm[int(chat_id)][2].reset()  # nuovo setup: contesto nuovo
+            if (
+                int(chat_id) in ivan_llm
+                and not is_edit
+                and not ivan_is_setup_text(strip_md(text).upper())
+            ):
+                icfg, _, buf = ivan_llm[int(chat_id)]
+                buf.push(time.time(), int(message_id), text)
+                ivan_llm_schedule(
+                    int(chat_id), ch_cfg,
+                    {"chat_id": int(chat_id), "message_id": message_id, "event_type": "LLM"},
+                    text,
+                )
+                if (
+                    not icfg.shadow
+                    and signal
+                    and signal.get("action") not in ("OPEN", "UPDATE_OPEN")
+                ):
+                    log.info(
+                        f"[IVAN_LLM] legacy {signal['action']} sospeso: decide l'interprete"
+                    )
+                    signal = None
 
             if signal:
                 msg_date = getattr(event, "date", None)

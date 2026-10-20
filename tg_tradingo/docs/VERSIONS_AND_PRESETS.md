@@ -16,13 +16,15 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.32** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.32** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| Bridge Python | **2.33** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.33** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**2.33 / MT5 2.33:** interprete LLM (Anthropic) dei messaggi di gestione IVAN (`ivan_interpreter.py`, config canale `interpreter`, debounce 25 s sui messaggi consecutivi, modalità shadow/live); EA: con fill uguali "peggiori" = T2+T4 e "migliori" = T1+T3 per CHECK_AND_BE scope e CLOSE_SELECTIVE keep (prima BE su tutte / nessuna chiusura).
 
 **2.32 / MT5 2.32:** unione su `main` della linea produzione Gamehosting (Hybrid, DD guard prop, STARK TP singolo, levels = MT5 2.30/2.31 + bridge 2.29) con i fix IVAN 2.30/2.31 (BE selettivo, stack rientro, UPDATE_OPEN, TP non numerico). Nessuna nuova funzionalità.
 

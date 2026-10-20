@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.32"
+#property version   "2.33"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.32"
+#define EA_VERSION "2.33"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -449,6 +449,36 @@ string ResolveSymbol(const string raw)
 ulong TradeMagic(const int magicBase, const int index)
   {
    return (ulong)magicBase + (ulong)index + InpMagicOffset;
+  }
+
+// Slot (1..5 = T1..T5) di una posizione dal magic; 0 se non nostra.
+int SlotFromMagic(const ulong magic, const int magicBase)
+  {
+   for(int i = 1; i <= 5; i++)
+      if(magic == TradeMagic(magicBase, i))
+         return i;
+   return 0;
+  }
+
+// Con fill tutti uguali "peggiori/migliori" non esiste a prezzo: per regola
+// operativa le gambe T2 e T4 sono le "peggiori" (BE/chiusura), T1 e T3 le
+// "migliori" (restano). HIGHEST/LOWEST si traducono per direzione.
+bool EqualFillIsWorstSlot(const int slot)
+  {
+   return (slot == 2 || slot == 4);
+  }
+
+bool GroupIsWorst(const string group, const string direction)
+  {
+   if(group == "WORST")
+      return true;
+   if(group == "BEST")
+      return false;
+   if(group == "HIGHEST")
+      return (direction == "BUY");   // BUY: fill alto = peggiore
+   if(group == "LOWEST")
+      return (direction == "SELL");  // SELL: fill basso = peggiore
+   return false;
   }
 
 //+------------------------------------------------------------------+
@@ -1894,7 +1924,7 @@ bool HandleCloseSelective(const string json)
      {
       ENUM_POSITION_TYPE side = (pass == 0 ? POSITION_TYPE_BUY : POSITION_TYPE_SELL);
 
-      double keepPrice = 0.0;
+      double keepPrice = 0.0, hiP = 0.0, loP = 0.0;
       bool found = false;
       for(int i = PositionsTotal() - 1; i >= 0; i--)
         {
@@ -1905,6 +1935,8 @@ bool HandleCloseSelective(const string json)
          if(!IsOurPosition(g_pos.Ticket(), magicBase, 5))
             continue;
          double price = g_pos.PriceOpen();
+         if(!found || price > hiP) hiP = price;
+         if(!found || price < loP) loP = price;
          bool keepHigher = (keep == "HIGHEST")
                            || (keep == "BEST" && side == POSITION_TYPE_SELL);
          if(!found || (keepHigher ? price > keepPrice : price < keepPrice))
@@ -1917,6 +1949,15 @@ bool HandleCloseSelective(const string json)
          continue;
 
       double tol = SymbolInfoDouble(symbol, SYMBOL_POINT) * 10.0;
+      // Fill tutti uguali: il gruppo "da tenere" (keep) sono le migliori T1/T3,
+      // si chiudono le peggiori T2/T4. keep=HIGHEST/LOWEST: se per direzione
+      // coincide con il gruppo peggiore, si tengono T2/T4 e si chiudono T1/T3.
+      bool equalFills = (hiP - loP <= tol);
+      string dirTxt = (side == POSITION_TYPE_BUY ? "BUY" : "SELL");
+      bool keepWorst = equalFills && GroupIsWorst(keep, dirTxt);
+      if(equalFills)
+         Print("[TradinGo] CLOSE_SELECTIVE keep=", keep, " ", symbol,
+               " — fills equal: closing slots ", (keepWorst ? "T1,T3" : "T2,T4"));
       int closed = 0;
       for(int i = PositionsTotal() - 1; i >= 0; i--)
         {
@@ -1926,7 +1967,13 @@ bool HandleCloseSelective(const string json)
             continue;
          if(!IsOurPosition(g_pos.Ticket(), magicBase, 5))
             continue;
-         if(MathAbs(g_pos.PriceOpen() - keepPrice) <= tol)
+         if(equalFills)
+           {
+            int slot = SlotFromMagic((ulong)g_pos.Magic(), magicBase);
+            if(EqualFillIsWorstSlot(slot) == keepWorst)
+               continue;
+           }
+         else if(MathAbs(g_pos.PriceOpen() - keepPrice) <= tol)
             continue;
          ulong ticket = g_pos.Ticket();
          SetTrackReason(ticket, "CLOSE_SELECTIVE_" + keep);
@@ -2086,13 +2133,12 @@ bool HandleCheckAndBe(const string json)
      }
    if(cnt == 0)
       return true;
-   if(scope != "" && scope != "ALL" && hi - lo <= g_sym.Point() * 5)
-     {
+   bool equalFills = (scope != "" && scope != "ALL" && hi - lo <= g_sym.Point() * 5);
+   bool wantWorst = GroupIsWorst(scope, direction);
+   if(equalFills)
       Print("[TradinGo] CHECK_AND_BE scope=", scope,
             " — all ", cnt, " fills equal (", DoubleToString(hi, (int)g_sym.Digits()),
-            "): BE applied to all");
-      scope = "ALL";
-     }
+            "): BE on slots ", (wantWorst ? "T2,T4 (worst)" : "T1,T3 (best)"));
    int done = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
@@ -2100,7 +2146,13 @@ bool HandleCheckAndBe(const string json)
          continue;
       if(!IsOurPosition(g_pos.Ticket(), magicBase, 5))
          continue;
-      if(!BeScopeSelects(scope, direction, g_pos.PriceOpen(), hi, lo))
+      if(equalFills)
+        {
+         int slot = SlotFromMagic((ulong)g_pos.Magic(), magicBase);
+         if(EqualFillIsWorstSlot(slot) != wantWorst)
+            continue;
+        }
+      else if(!BeScopeSelects(scope, direction, g_pos.PriceOpen(), hi, lo))
          continue;
       ApplyBreakEvenSLSignal(g_pos.Ticket(), signalEntry);
       done++;
