@@ -17,12 +17,14 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
 | Bridge Python | **2.33** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.33** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| EA MT5 | **2.34** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**MT5 2.34 (bridge 2.33 invariato):** size per segnale. `InpLotPerSignal=true` → gli override `InpLot*` sono la size TOTALE del segnale, divisa sui TP e arrotondata per difetto allo step (0.40: 4 TP → 0.10, 3 TP → 0.13, 1 TP → 0.40); vale anche per gli slot riempiti da UPDATE_OPEN. Nuovo `InpLotIvanBtc`. Gli override ora rispettano il `lot_factor` del bridge ("piccole size" → ×0.5), prima ignorato. Preset: Vantage 0.40 a segnale su tutti i canali; Agorà IVAN 0.05 a TP (0.20 a segnale).
 
 **2.33 / MT5 2.33:** interprete LLM (Anthropic) dei messaggi di gestione IVAN (`ivan_interpreter.py`, config canale `interpreter`, debounce 25 s sui messaggi consecutivi, modalità shadow/live); EA: con fill uguali "peggiori" = T2+T4 e "migliori" = T1+T3 per CHECK_AND_BE scope e CLOSE_SELECTIVE keep (prima BE su tutte / nessuna chiusura).
 
@@ -251,9 +253,9 @@ Tutti in `tg_tradingo/mql5/presets/`, si caricano da `Inputs → Load` sul chart
 
 | Preset | Conto | Guard DD | Sizing serbatoio | Canali | Note |
 |---|---|---|---|---|---|
-| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Gamehosting) | off | off | gold, forex, stark, ivan, ivanbtc | conto "misura i canali": riceve tutti i canali attivi, nessun guard altera i risultati. ORO VIP dismesso (10/2026) |
+| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Gamehosting) | off | off | gold, forex, stark, ivan, ivanbtc | conto "misura i canali": riceve tutti i canali attivi, nessun guard altera i risultati; 0.40 a segnale su tutti i canali (`InpLotPerSignal`). ORO VIP dismesso (10/2026) |
 | `TG_TradinGo_Ultima_iFunds_Demo.set` | Ultima demo (Gamehosting) | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | prova delle regole iFunds; `InpMagicOffset=0` per non perdere le posizioni già aperte |
-| `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 3%, chiusura 3,5%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.01 | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
+| `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 3%, chiusura 3,5%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.05 a TP (0.20 a segnale) | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
 | `TG_TradinGo_iFunds_10k_dd6.set` | iFunds 10k reale | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | `InpMagicOffset=500000` |
 | `TG_TradinGo_iFunds_50k_dd6.set` | iFunds 50k reale | 6%, start 50.000 → floor 47.000 | on, cap 0,25 | ivan, stark | scalata dopo il 10k |
 | `TG_TradinGo_Reale_Personale.set` | conti reali personali | 10%, equity catturata al primo attach | off | ivan, stark (da scegliere) | template: lotti, suffisso simbolo e % vanno adattati al broker |

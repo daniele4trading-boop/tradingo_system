@@ -3,9 +3,10 @@
 ;   - nessun guard DD (InpDdMaxPct=0 -> log "DD_GUARD disabled")
 ;   - killswitch flottante SPENTO (InpMaxFloatingLossUSD=0)
 ;   - nessun cooldown dopo chiusura bucket (InpKillSwitchCooldownMin=0)
-;   - lotti 0 = usa fixed_lot dal JSON del bridge (tipico 0.10/TP, 0.20 single)
+;   - lotti: 0.40 TOTALI per segnale su tutti i canali (InpLotPerSignal=true),
+;     divisi sui TP e arrotondati per difetto (4 TP -> 0.10, 3 TP -> 0.13)
 ; Path segnali: cartella locale MQL5\Files del terminale (nessuna junction)
-; Richiede EA v2.13+
+; Richiede EA v2.34+
 ; Carica da: Inputs EA -> Load -> questo file
 
 InpSignalsPath=
@@ -14,13 +15,15 @@ InpChannels=gold,forex,stark,ivan,ivanbtc,hybridgold,hybridfx
 InpSymbolSuffix=
 InpLotMultiplier=1.0
 InpAddLotFactor=0.5
-InpLotIvan=0.0
-InpLotStark=0.0
-InpLotGold=0.0
-InpLotOro=0.0
-InpLotHybridGold=0.01
-InpLotHybridFx=0.01
-InpLotForex=0.0
+InpLotIvan=0.40
+InpLotStark=0.40
+InpLotGold=0.40
+InpLotOro=0.40
+InpLotHybridGold=0.40
+InpLotHybridFx=0.40
+InpLotForex=0.40
+InpLotIvanBtc=0.40
+InpLotPerSignal=true
 InpTagIvan=IT
 InpTagStark=AS
 InpTagGold=
