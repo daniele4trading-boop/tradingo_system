@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.33"
+#property version   "2.34"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.33"
+#define EA_VERSION "2.34"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -35,6 +35,11 @@ input double InpLotOro             = 0.0;
 input double InpLotForex           = 0.0;
 input double InpLotHybridGold      = 0.0;   // v2.31 CH_HYBRIDGOLD (Hybrid | Setup Gold)
 input double InpLotHybridFx        = 0.0;   // v2.31 CH_HYBRIDFX (Hybrid | Setup Forex)
+input double InpLotIvanBtc         = 0.0;   // v2.34 CH_IVANBTC
+// v2.34: true -> gli override InpLot* sono la size TOTALE del segnale, divisa
+// sui TP e arrotondata per difetto allo step (0.40 con 4 TP -> 0.10 a TP).
+// false -> override = lotto per ogni TP (comportamento storico).
+input bool   InpLotPerSignal       = false;
 // Short comment tags (empty = default CHANNEL name). Moneta: IT / AS
 input string InpTagIvan            = "IT";
 input string InpTagStark           = "AS";
@@ -924,7 +929,40 @@ double LotOverrideForChannel(const string channelFile, const string json)
       return InpLotHybridGold;
    if(key == "hybridfx")
       return InpLotHybridFx;
+   if(key == "ivanbtc")
+      return InpLotIvanBtc;
    return 0.0;
+  }
+
+//+------------------------------------------------------------------+
+// Override lot with the bridge's size reduction ("piccole size" -> lot_factor
+// 0.5), which the bridge already applied to fixed_lot but an override replaces.
+double ChannelLotOverride(const string channelFile, const string json)
+  {
+   double ov = LotOverrideForChannel(channelFile, json);
+   if(ov <= 0.0)
+      return 0.0;
+   double f = JsonGetNumber(json, "lot_factor");
+   if(f > 0.0 && f < 1.0)
+      ov *= f;
+   return ov;
+  }
+
+//+------------------------------------------------------------------+
+// InpLotPerSignal: split the override lot of one signal across its n TP legs.
+double LotForTpLeg(const string symbol, const double lot, const int n,
+                   const string channelFile, const string json)
+  {
+   if(!InpLotPerSignal || n <= 1 || LotOverrideForChannel(channelFile, json) <= 0.0)
+      return lot;
+   double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   if(step <= 0)
+      step = 0.01;
+   double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double leg = MathFloor(lot / n / step + 1e-9) * step;
+   if(leg < minLot)
+      leg = minLot;
+   return NormalizeDouble(leg, 2);
   }
 
 //+------------------------------------------------------------------+
@@ -1341,13 +1379,14 @@ bool OpenSplitTrades(const string symbol, const string direction,
    int n = ArraySize(tps);
    if(n <= 0)
       n = 1;
+   double legLot = LotForTpLeg(symbol, lot, n, channelFile, json);
    bool any = false;
    for(int i = 0; i < n; i++)
      {
       double tp = (i < ArraySize(tps)) ? tps[i] : 0.0;
       ulong magic = TradeMagic(magicBase, i + 1);
       string comment = BuildTradeComment(channelTag, i + 1, json);
-      if(OpenMarket(symbol, direction, lot, sl, tp, magic, comment,
+      if(OpenMarket(symbol, direction, legLot, sl, tp, magic, comment,
                     channelFile, json, entryStatus, rangeLo, rangeHi,
                     distancePoints, i + 1))
          any = true;
@@ -1468,7 +1507,7 @@ bool HandleOpen(const string channelFile, const string json)
    double fixedLot = JsonGetNumber(json, "fixed_lot");
    if(fixedLot <= 0)
       fixedLot = 0.20;
-   double ov = LotOverrideForChannel(channelFile, json);
+   double ov = ChannelLotOverride(channelFile, json);
    if(ov > 0.0)
       fixedLot = ov;
    fixedLot = DdSizedLot(symbol, ChannelKeyFromFile(channelFile, json), fixedLot);
@@ -1576,7 +1615,7 @@ bool HandleUpdateOpen(const string channelFile, const string json)
    double fixedLot = JsonGetNumber(json, "fixed_lot");
    if(fixedLot <= 0)
       fixedLot = 0.10;
-   double ovUpd = LotOverrideForChannel(channelFile, json);
+   double ovUpd = ChannelLotOverride(channelFile, json);
    if(ovUpd > 0.0)
       fixedLot = ovUpd;
    double sized = DdSizedLot(symbol, ChannelKeyFromFile(channelFile, json), fixedLot);
@@ -1655,8 +1694,8 @@ bool HandleUpdateOpen(const string channelFile, const string json)
            }
          Print("[TradinGo] UPDATE_OPEN fill missing magic=", magic,
                " slot=", i, "/", n);
-         if(OpenMarket(symbol, direction, lot, sl, tp, magic,
-                       BuildTradeComment(channelTag, i, json),
+         if(OpenMarket(symbol, direction, LotForTpLeg(symbol, lot, n, channelFile, json),
+                       sl, tp, magic, BuildTradeComment(channelTag, i, json),
                        channelFile, json, "EXECUTED_UPDATE_FILL", 0, 0, 0, i))
             any = true;
         }
@@ -3857,6 +3896,11 @@ int OnInit()
    Print("[TradinGo] v", EA_VERSION, " lots/tags | ivan=", DoubleToString(InpLotIvan, 2),
          "/", InpTagIvan,
          " stark=", DoubleToString(InpLotStark, 2), "/", InpTagStark,
+         " gold=", DoubleToString(InpLotGold, 2), " forex=", DoubleToString(InpLotForex, 2),
+         " hybridgold=", DoubleToString(InpLotHybridGold, 2),
+         " hybridfx=", DoubleToString(InpLotHybridFx, 2),
+         " ivanbtc=", DoubleToString(InpLotIvanBtc, 2),
+         " lot_per_signal=", InpLotPerSignal,
          " comment_tg_prefix=", InpCommentUseTgPrefix);
    Print("[TradinGo] v", EA_VERSION, " hardening | killswitch currency=ACCOUNT_CURRENCY (",
          AccountInfoString(ACCOUNT_CURRENCY), ")",
