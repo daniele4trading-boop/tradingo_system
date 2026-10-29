@@ -48,6 +48,13 @@ input int    InpMaxSlippagePoints  = 50;
 input int    InpPollMs             = 500;
 input int    InpRangeTolerancePoints = 200;
 input int    InpOroRangeTolerancePoints = 250; // 0 = use InpRangeTolerancePoints
+// An OPEN cancelled because the market is already beyond range+tolerance is
+// kept pending and retried on every tick for this many seconds: the trade
+// opens as soon as the price comes back within tolerance (29/10: SELL
+// 4028-4033 posted with price at 4025.5, back in zone a minute later, then
+// down to TP3). Dropped if the market crosses the published SL, when the
+// window expires or when a new signal arrives on the same channel. 0 = off.
+input int    InpRangeRetrySec         = 600;
 input bool   InpLogCancelledSignals  = true;
 input bool   InpClearSignalAfterProcess = true;
 input bool   InpIgnoreExistingOnInit = true; // skip+clear JSON already present at attach
@@ -730,6 +737,124 @@ double BeTargetForPosition(const string direction, const double fill, const doub
    return buy ? MathMax(fill, signalEntry) : MathMin(fill, signalEntry);
   }
 
+// Pending off-market opens (one per channel file), see InpRangeRetrySec.
+string   g_rrFile[];
+string   g_rrJson[];
+string   g_rrSymbol[];
+string   g_rrDir[];
+double   g_rrLo[];
+double   g_rrHi[];
+double   g_rrSl[];
+datetime g_rrExpiry[];
+bool     g_rrRetrying = false;
+
+void RangeRetryRemove(const int i)
+  {
+   int n = ArraySize(g_rrFile);
+   for(int k = i; k < n - 1; k++)
+     {
+      g_rrFile[k] = g_rrFile[k + 1];
+      g_rrJson[k] = g_rrJson[k + 1];
+      g_rrSymbol[k] = g_rrSymbol[k + 1];
+      g_rrDir[k] = g_rrDir[k + 1];
+      g_rrLo[k] = g_rrLo[k + 1];
+      g_rrHi[k] = g_rrHi[k + 1];
+      g_rrSl[k] = g_rrSl[k + 1];
+      g_rrExpiry[k] = g_rrExpiry[k + 1];
+     }
+   ArrayResize(g_rrFile, n - 1);
+   ArrayResize(g_rrJson, n - 1);
+   ArrayResize(g_rrSymbol, n - 1);
+   ArrayResize(g_rrDir, n - 1);
+   ArrayResize(g_rrLo, n - 1);
+   ArrayResize(g_rrHi, n - 1);
+   ArrayResize(g_rrSl, n - 1);
+   ArrayResize(g_rrExpiry, n - 1);
+  }
+
+void RangeRetryDrop(const string channelFile, const string reason)
+  {
+   for(int i = ArraySize(g_rrFile) - 1; i >= 0; i--)
+     {
+      if(g_rrFile[i] != channelFile)
+         continue;
+      Print("[TradinGo] RANGE_RETRY_DROPPED ", channelFile, " ", g_rrSymbol[i], " ", g_rrDir[i],
+            " reason=", reason);
+      RangeRetryRemove(i);
+     }
+  }
+
+void RangeRetryAdd(const string channelFile, const string json, const string symbol,
+                   const string direction, const double lo, const double hi)
+  {
+   if(InpRangeRetrySec <= 0 || g_rrRetrying)
+      return;
+   RangeRetryDrop(channelFile, "replaced");
+   int n = ArraySize(g_rrFile);
+   ArrayResize(g_rrFile, n + 1);
+   ArrayResize(g_rrJson, n + 1);
+   ArrayResize(g_rrSymbol, n + 1);
+   ArrayResize(g_rrDir, n + 1);
+   ArrayResize(g_rrLo, n + 1);
+   ArrayResize(g_rrHi, n + 1);
+   ArrayResize(g_rrSl, n + 1);
+   ArrayResize(g_rrExpiry, n + 1);
+   g_rrFile[n] = channelFile;
+   g_rrJson[n] = json;
+   g_rrSymbol[n] = symbol;
+   g_rrDir[n] = direction;
+   g_rrLo[n] = lo;
+   g_rrHi[n] = hi;
+   g_rrSl[n] = JsonGetNumber(json, "sl");
+   g_rrExpiry[n] = TimeCurrent() + InpRangeRetrySec;
+   Print("[TradinGo] RANGE_RETRY_PENDING ", channelFile, " ", symbol, " ", direction,
+         " range=[", DoubleToString(lo, (int)g_sym.Digits()), ",",
+         DoubleToString(hi, (int)g_sym.Digits()), "] for ", InpRangeRetrySec,
+         "s — opens when price is back within tolerance");
+  }
+
+void ProcessRangeRetry()
+  {
+   for(int i = ArraySize(g_rrFile) - 1; i >= 0; i--)
+     {
+      if(TimeCurrent() > g_rrExpiry[i])
+        {
+         Print("[TradinGo] RANGE_RETRY_EXPIRED ", g_rrFile[i], " ", g_rrSymbol[i], " ", g_rrDir[i],
+               " after ", InpRangeRetrySec, "s");
+         RangeRetryRemove(i);
+         continue;
+        }
+      g_sym.Name(g_rrSymbol[i]);
+      g_sym.RefreshRates();
+      double px = (g_rrDir[i] == "BUY") ? g_sym.Ask() : g_sym.Bid();
+      if(g_rrSl[i] > 0.0 && ((g_rrDir[i] == "BUY") ? (px <= g_rrSl[i]) : (px >= g_rrSl[i])))
+        {
+         Print("[TradinGo] RANGE_RETRY_DROPPED ", g_rrFile[i], " ", g_rrSymbol[i], " ", g_rrDir[i],
+               " reason=price_beyond_sl price=", DoubleToString(px, (int)g_sym.Digits()),
+               " sl=", DoubleToString(g_rrSl[i], (int)g_sym.Digits()));
+         RangeRetryRemove(i);
+         continue;
+        }
+      double dist = 0.0;
+      int maxTol = RangeToleranceForChannel(g_rrFile[i], g_rrJson[i]);
+      if(EvaluateEntryRange(g_rrSymbol[i], g_rrDir[i], g_rrLo[i], g_rrHi[i], maxTol, px, dist) == ENTRY_CANCELLED)
+         continue;
+      string file = g_rrFile[i];
+      string json = g_rrJson[i];
+      string action = JsonGetString(json, "action");
+      Print("[TradinGo] RANGE_RETRY_EXECUTE ", file, " ", g_rrSymbol[i], " ", g_rrDir[i],
+            " action=", action, " price=", DoubleToString(px, (int)g_sym.Digits()),
+            " waited=", (int)(TimeCurrent() - (g_rrExpiry[i] - InpRangeRetrySec)), "s");
+      RangeRetryRemove(i);
+      g_rrRetrying = true;
+      if(action == "UPDATE_OPEN")
+         HandleUpdateOpen(file, json);
+      else
+         HandleOpen(file, json);
+      g_rrRetrying = false;
+     }
+  }
+
 datetime g_beLastRetry = 0;
 
 void ProcessBePending()
@@ -1276,6 +1401,7 @@ bool TryExecuteWithEntryRange(const string channelFile, const string json,
    LogCancelledSignal(channelFile, json, symbol, direction, lo, hi, price,
                       outDistancePoints, maxTol);
    outEntryStatus = "CANCELLED_RANGE";
+   RangeRetryAdd(channelFile, json, symbol, direction, lo, hi);
    return false;
   }
 
@@ -2205,6 +2331,7 @@ bool ProcessSignalJson(const string channelFile, const string json)
    Print("[TradinGo] ", channelFile, " action=", action,
          " sym=", JsonGetString(json, "symbol"),
          " ts=", ts);
+   RangeRetryDrop(channelFile, "new_signal_" + action);
 
    bool handled = false;
    if(action == "OPEN" || action == "OPEN_NOW")
@@ -3850,6 +3977,7 @@ int OnInit()
          " update_open_max_drift_pct_of_sl=", DoubleToString(InpUpdateOpenMaxDriftPctOfSl, 1),
          " be_use_signal_entry=", InpBeUseSignalEntry,
          " be_signal_entry_max_gap_pts=", InpBeSignalEntryMaxGapPoints,
+         " range_retry_sec=", InpRangeRetrySec,
          " protect_existing_levels=", InpProtectExistingLevels,
          " naked_fallback_sl_pts=", InpNakedFallbackSlPoints,
          " be_never_worse_than_entry=", InpBeNeverWorseThanEntry,
@@ -3913,6 +4041,7 @@ void OnTimer()
 void OnTick()
   {
    ProcessBePending();
+   ProcessRangeRetry();
    CheckEquityFloorGuard();
    CheckDailyDdGuard();
    CheckFloatingKillSwitch();

@@ -52,7 +52,7 @@ Il bridge sovrascrive l'intero file ad ogni evento (scrittura atomica tmp + repl
 | `direction` | `"BUY"` \| `"SELL"` | Obbligatorio per OPEN* |
 | `symbol` | string | Es. `XAUUSD`, `EURUSD` |
 | `entry` | number \| null | Prezzo singolo; **null** se c'è `entry_range` |
-| `entry_range` | `[lo, hi]` \| null | EA valuta prezzo nel range (non usa media) |
+| `entry_range` | `[lo, hi]` \| null | EA valuta prezzo nel range (non usa media); se oltre range+tolleranza l'OPEN resta pendente per `InpRangeRetrySec` (600 s) e si apre al rientro del prezzo (`RANGE_RETRY_*`), scartato se supera lo SL o arriva un nuovo segnale |
 | `sl` | number \| null | Stop loss |
 | `tp_levels` | number[] | Un TP per trade split |
 | `trades` | int | Numero posizioni da aprire |
