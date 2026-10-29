@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.33"
+#property version   "2.34"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.33"
+#define EA_VERSION "2.34"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -86,19 +86,18 @@ input bool   InpBePendingRetry        = true;
 // retry on every tick produced thousands of BE_PENDING lines for 20 min).
 input int    InpBePendingRetrySec     = 5;
 // CHECK_AND_BE may carry be_price = the entry published by the channel. The
-// real fill is often 2-3$ worse (2026-09-14: BE at fill 4278.1 stopped at once,
-// the channel's 4276 was never touched). Use be_price when it is legal vs the
-// market and within this gap from the fill; otherwise fall back to the fill.
+// break-even stop is the WIDER of our fill and that entry (BUY: the lower,
+// SELL: the higher), never tighter than our fill: 28/10 fill 4033.26, channel
+// entry 4036 -> SL 4036 stopped T3/T4 on a 3$ dip before TP3/TP4. When the
+// channel entered better than us (its entry beyond our fill) the stop follows
+// it, locking a small loss vs our fill, capped at InpBeSignalEntryMaxGapPoints
+// from the fill (200 pts = 2$/oz = 2$ per 0.01 lot): beyond the cap the stop
+// sits exactly at fill -/+ cap. BE_FILL_IF_BETTER keeps the legacy behaviour
+// (the tighter of the two).
 input bool   InpBeUseSignalEntry     = true;
-input int    InpBeSignalEntryMaxGapPoints = 500;
-// BE_FILL_IF_BETTER: SL at the more protective between fill and be_price.
-// BE_SIGNAL_ENTRY: SL at be_price even when it locks a small loss vs our fill
-// (channel entered better than us: its BE survives the retrace, ours does not;
-// 08/10: BE at fill 4123.8 stopped flat, channel BE 4116 then took TP2/TP3).
-// Loss vs fill capped at InpBeSignalEntryMaxLoss (price units), beyond -> fill.
+input int    InpBeSignalEntryMaxGapPoints = 200;
 enum ENUM_BE_MODE { BE_FILL_IF_BETTER = 0, BE_SIGNAL_ENTRY = 1 };
 input ENUM_BE_MODE InpBeMode          = BE_SIGNAL_ENTRY;
-input double InpBeSignalEntryMaxLoss  = 5.0;
 // UPDATE_OPEN re-fills a planned slot only if it was never opened for this
 // signal: a leg already closed (TP/SL/BE) must not be reopened (09/10: T1 took
 // TP1, the TP update 20 s later reopened it). Lookback for the history check.
@@ -707,27 +706,28 @@ bool ApplyBreakEvenSLSignal(const ulong ticket, const double signalEntry)
    return ApplyBreakEvenSLEx(ticket, false, signalEntry);
   }
 
-// Break-even level preferred for a position: the more protective between the
-// fill and the channel's published entry (fill better than the entry -> fill,
-// fill worse -> the entry, so the stop matches the channel's), provided the
-// entry is requested and close enough to the fill; otherwise the fill itself.
+// Break-even level for a position. BE_SIGNAL_ENTRY: the wider of fill and the
+// channel's entry, at most InpBeSignalEntryMaxGapPoints beyond the fill; never
+// tighter than the fill. BE_FILL_IF_BETTER (legacy): the tighter of the two.
 double BeTargetForPosition(const string direction, const double fill, const double signalEntry)
   {
    if(!InpBeUseSignalEntry || signalEntry <= 0.0)
       return fill;
+   bool buy = (direction == "BUY");
+   if(InpBeMode == BE_SIGNAL_ENTRY)
+     {
+      bool wider = buy ? (signalEntry < fill) : (signalEntry > fill);
+      if(!wider)
+         return fill;
+      double cap = (InpBeSignalEntryMaxGapPoints > 0) ? InpBeSignalEntryMaxGapPoints * g_sym.Point() : 0.0;
+      if(cap > 0.0 && MathAbs(signalEntry - fill) > cap)
+         return NormalizeDouble(buy ? fill - cap : fill + cap, (int)g_sym.Digits());
+      return signalEntry;
+     }
    double gapPts = MathAbs(signalEntry - fill) / g_sym.Point();
    if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
       return fill;
-   if(InpBeMode == BE_SIGNAL_ENTRY)
-     {
-      bool worse = (direction == "BUY") ? (signalEntry < fill) : (signalEntry > fill);
-      if(worse && InpBeSignalEntryMaxLoss > 0.0 && MathAbs(signalEntry - fill) > InpBeSignalEntryMaxLoss)
-         return fill;
-      return signalEntry;
-     }
-   if(direction == "BUY")
-      return MathMax(fill, signalEntry);
-   return MathMin(fill, signalEntry);
+   return buy ? MathMax(fill, signalEntry) : MathMin(fill, signalEntry);
   }
 
 datetime g_beLastRetry = 0;
@@ -771,16 +771,17 @@ bool ApplyBreakEvenSLEx(const ulong ticket, const bool fromQueue, const double s
    int digits = (int)g_sym.Digits();
    if(!fromQueue && signalEntry > 0.0 && MathAbs(be - signalEntry) > g_sym.Point())
      {
-      double gapPts = MathAbs(signalEntry - fill) / g_sym.Point();
-      if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
-         Print("[TradinGo] BE_SIGNAL_ENTRY_TOO_FAR ticket=", ticket,
+      if(MathAbs(be - fill) <= g_sym.Point())
+         Print("[TradinGo] BE_AT_FILL ticket=", ticket,
+               " signal_entry=", DoubleToString(signalEntry, digits),
+               " fill=", DoubleToString(fill, digits), " (", direction,
+               ") -> signal entry not wider than fill, BE at fill");
+      else
+         Print("[TradinGo] BE_SIGNAL_ENTRY_CAPPED ticket=", ticket,
                " signal_entry=", DoubleToString(signalEntry, digits),
                " fill=", DoubleToString(fill, digits),
-               " max_gap_pts=", InpBeSignalEntryMaxGapPoints, " -> BE at fill");
-      else
-         Print("[TradinGo] BE_FILL_BETTER ticket=", ticket,
-               " signal_entry=", DoubleToString(signalEntry, digits),
-               " fill=", DoubleToString(fill, digits), " (", direction, ") -> BE at fill");
+               " max_gap_pts=", InpBeSignalEntryMaxGapPoints,
+               " -> sl=", DoubleToString(be, digits));
      }
    int buffers[3];
    buffers[0] = InpStopBufferPoints;
