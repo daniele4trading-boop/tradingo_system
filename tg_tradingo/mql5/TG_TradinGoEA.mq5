@@ -4073,7 +4073,6 @@ int OnInit()
          " ivanbtc=", DoubleToString(InpLotIvanBtc, 2),
          " lot_per_signal=", InpLotPerSignal,
          " comment_tg_prefix=", InpCommentUseTgPrefix);
-         " comment_tg_prefix=", InpCommentUseTgPrefix);
    Print("[TradinGo] v", EA_VERSION, " hardening | killswitch currency=ACCOUNT_CURRENCY (",
          AccountInfoString(ACCOUNT_CURRENCY), ")",
          " max_floating_loss=", DoubleToString(InpMaxFloatingLossUSD, 2),
