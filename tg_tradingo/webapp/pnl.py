@@ -172,7 +172,8 @@ def apply_channel_overrides(
             ts = r.get("close_time_utc") or r.get("ts_utc") or ""
             if ts[:10] < cutoff_days or (until and ts[:10] >= until):
                 continue
-            r.setdefault("channel", ch_id)
+            r["channel"] = ch_id
+            r["magic"] = ""  # il magic del CSV esterno non deve rimappare il canale
             r["source"] = "theory"
             out.append(r)
     return out
