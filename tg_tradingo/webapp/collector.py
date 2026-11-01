@@ -211,7 +211,7 @@ class Collector:
         """Trade chiuse del canale `channel_id` negli ultimi `days` giorni UTC (una riga per TP)."""
         from webapp.pnl import (
             NORM_LOT, _f, build_magic_map, load_trades_range, normalize_channel,
-            signal_volumes, trade_pips,
+            pips_counted, signal_volumes, trade_pips,
         )
         magic_map = build_magic_map(self._tradingo_cfg.get("channels", []))
         result: list[dict] = []
@@ -241,7 +241,7 @@ class Collector:
                     "close_price": _f(row, "close_price"),
                     "profit_usd": round(pnl, 2),
                     "pnl_norm": round(pnl * NORM_LOT / svol, 2) if svol > 0 else 0.0,
-                    "pips": round(trade_pips(row), 1),
+                    "pips": round(trade_pips(row), 1) if pips_counted(row.get("symbol")) else None,
                     "close_reason": row.get("close_reason"),
                     "signal_id": row.get("signal_id"),
                     "account": acc.get("label") or acc.get("id"),

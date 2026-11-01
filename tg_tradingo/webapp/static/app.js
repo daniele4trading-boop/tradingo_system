@@ -138,6 +138,7 @@ function renderAccounts(accounts) {
 }
 
 function fmtPips(v) {
+  if (v === null || v === undefined) return "n/d";
   const n = Number(v || 0);
   return (n > 0 ? "+" : "") + n.toFixed(0) + " pips";
 }
@@ -179,7 +180,7 @@ function renderChannels(channels) {
         </div>
         <div class="counts">
           <span>Oggi <b class="${pnlClass(p.pnl_norm)}">${fmtMoney(p.pnl_norm)}</b></span>
-          <span>7g <b class="${pnlClass(p7.pnl_norm)}">${fmtMoney(p7.pnl_norm)}</b></span>
+          <span>7g <b class="${pnlClass(p7.pnl_norm)}">${fmtMoney(p7.pnl_norm)}</b> · <b class="${pnlClass(p7.pips)}">${fmtPips(p7.pips)}</b></span>
           <span class="raw">Reale 30g <b class="${pnlClass(p30.pnl)}">${fmtMoney(p30.pnl)}</b></span>
         </div>
         <div class="counts">

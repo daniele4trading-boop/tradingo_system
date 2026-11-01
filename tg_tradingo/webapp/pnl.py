@@ -191,6 +191,14 @@ def pip_size(symbol: str | None) -> float:
     return 0.0001
 
 
+PIPS_EXCLUDED_PREFIXES = ("BTC", "ETH")
+
+
+def pips_counted(symbol: str | None) -> bool:
+    """BTC/ETH esclusi dai totali pips: scala non omogenea con oro/forex."""
+    return not (symbol or "").upper().startswith(PIPS_EXCLUDED_PREFIXES)
+
+
 def trade_pips(row: dict) -> float:
     """Pips realizzati (positivi se in guadagno) da prezzo di ingresso e chiusura."""
     entry = _f(row, "fill", "entry_price", "req_entry")
@@ -231,7 +239,11 @@ def _finalize_bucket(b: dict[str, Any]) -> dict[str, Any]:
 
 
 def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map: dict[int, str] | None = None) -> dict[str, Any]:
-    """Per-channel closed PnL for each lookback window (1=today, 7, 30)."""
+    """Per-channel closed PnL for each lookback window (1=today, 7, 30).
+
+    `pips` = somma dei pips realizzati da ogni gamba chiusa (non pesata per volume,
+    BTC/ETH esclusi); `pnl_norm` = P&L riportato a un segnale da NORM_LOT lotti.
+    """
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
 
@@ -257,12 +269,12 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map:
         age_days = (now.date() - ts.date()).days
         ch = normalize_channel(row.get("channel") or row.get("channel_id"), magic=row.get("magic"), magic_map=magic_map)
         vol = _f(row, "volume")
-        # Peso del TP nel segnale: P&L e pips riportati a un segnale da NORM_LOT lotti.
+        # Peso del TP nel segnale: P&L riportato a un segnale da NORM_LOT lotti.
+        # I pips sono invece la somma reale di ogni gamba, indipendente dalla size.
         key = _signal_key(row)
         svol = sig_vol.get(key) or vol
-        share = vol / svol if svol > 0 else 0.0
         pnl_norm = pnl * NORM_LOT / svol if svol > 0 else 0.0
-        pips = trade_pips(row) * share
+        pips = trade_pips(row) if pips_counted(row.get("symbol")) else 0.0
 
         for d in windows_days:
             if age_days >= d:

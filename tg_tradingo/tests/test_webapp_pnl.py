@@ -204,11 +204,12 @@ class TestNormalizedPnl:
         assert round(trade_pips(row), 1) == 48.7
 
     def test_btc_100k_points_is_10_usd_at_001(self):
-        # 100.000 point BTC (1000 $ di prezzo) = 10.000 pips; a 0.01 lotti = 10 $.
+        # BTC: il P&L normalizzato resta, i pips sono esclusi (scala non omogenea).
         rows = [self._close("b1", 1, "BTCUSD", "BUY", 0.01, 60000, 61000, 10.0, 18001)]
         out = summarize_closed_pnl(rows, [1, 30], {18000: "CH_IVANBTC"})
         b = out["by_channel"]["CH_IVANBTC"]["d30"]
-        assert b["pips"] == 10000.0
+        assert b["pips"] == 0.0
+        assert out["totals"]["d30"]["pips"] == 0.0
         assert b["pnl_norm"] == 10.0
         assert b["signals"] == 1
 
@@ -225,7 +226,8 @@ class TestNormalizedPnl:
         stark = out["by_channel"]["CH_STARK"]["d30"]
         assert ivan["pnl"] == 160.0
         assert ivan["pnl_norm"] == 4.0
-        assert ivan["pips"] == 40.0
+        # pips = somma reale delle 4 gambe (40 ciascuna), non media pesata
+        assert ivan["pips"] == 160.0
         assert ivan["trades"] == 4 and ivan["signals"] == 1
         assert ivan["signal_win_rate"] == 100.0
         assert stark["pnl_norm"] == -4.0
