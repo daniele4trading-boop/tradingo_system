@@ -199,17 +199,17 @@ class TestNormalizedPnl:
         assert pip_size("XAUUSD.ago") == 0.1
         assert pip_size("GBPJPY") == 0.01
         assert pip_size("EURUSD") == 0.0001
-        assert pip_size("BTCUSD") == 0.1
+        assert pip_size("BTCUSD") == 10.0
         row = {"symbol": "XAUUSD", "direction": "SELL", "fill": "4176.05", "close_price": "4171.18"}
         assert round(trade_pips(row), 1) == 48.7
 
     def test_btc_100k_points_is_10_usd_at_001(self):
-        # BTC: il P&L normalizzato resta, i pips sono esclusi (scala non omogenea).
+        # BTC omogeneo all'oro: 1000 $ di prezzo a 0.01 lotti = 10 $ = 100 pips
+        # (come 100 pips oro = 10 $ a 0.01 lotti).
         rows = [self._close("b1", 1, "BTCUSD", "BUY", 0.01, 60000, 61000, 10.0, 18001)]
         out = summarize_closed_pnl(rows, [1, 30], {18000: "CH_IVANBTC"})
         b = out["by_channel"]["CH_IVANBTC"]["d30"]
-        assert b["pips"] == 0.0
-        assert out["totals"]["d30"]["pips"] == 0.0
+        assert b["pips"] == 100.0
         assert b["pnl_norm"] == 10.0
         assert b["signals"] == 1
 

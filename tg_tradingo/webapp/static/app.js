@@ -138,7 +138,6 @@ function renderAccounts(accounts) {
 }
 
 function fmtPips(v) {
-  if (v === null || v === undefined) return "n/d";
   const n = Number(v || 0);
   return (n > 0 ? "+" : "") + n.toFixed(0) + " pips";
 }
