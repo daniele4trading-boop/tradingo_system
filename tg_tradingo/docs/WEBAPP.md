@@ -48,6 +48,11 @@ Ogni conto è una voce di `accounts` e produce un riquadro nella sezione **Conti
 ]
 ```
 
+- `channel_overrides` (opzionale): per un canale sostituisce le gambe reali chiuse prima di
+  `until` (UTC, esclusa) con quelle di un CSV nello stesso formato `trades_*.csv`.
+  Usato per IVAN: fino al 31/10/2026 pips/P&L vengono da `webapp/data/ivan_theory_legs.csv`
+  (simulazione dei setup di Ivan senza i bug di bridge/EA, 0,01 lotti/gamba), dall'1/11
+  dalle gambe reali del conto. Nel dettaglio canale le gambe simulate hanno `source=theory`.
 - `start_date` scarta la storia precedente: accetta un giorno (`2026-08-05`) o un
   istante (`2026-08-05T10:05:00Z`, utile dopo un reset a metà giornata). Serve dopo un reset saldo,
   altrimenti equity e PnL includono la storia del conto vecchio.

@@ -179,7 +179,7 @@ function renderChannels(channels) {
         </div>
         <div class="counts">
           <span>Oggi <b class="${pnlClass(p.pnl_norm)}">${fmtMoney(p.pnl_norm)}</b></span>
-          <span>7g <b class="${pnlClass(p7.pnl_norm)}">${fmtMoney(p7.pnl_norm)}</b></span>
+          <span>7g <b class="${pnlClass(p7.pnl_norm)}">${fmtMoney(p7.pnl_norm)}</b> · <b class="${pnlClass(p7.pips)}">${fmtPips(p7.pips)}</b></span>
           <span class="raw">Reale 30g <b class="${pnlClass(p30.pnl)}">${fmtMoney(p30.pnl)}</b></span>
         </div>
         <div class="counts">
@@ -300,7 +300,7 @@ async function loadChannel(channelId, days) {
       <td class="${pnlClass(Number(t.pips))}">${fmtPips(t.pips)}</td>
       <td class="${pnlClass(Number(t.pnl_norm))}">${fmtMoney(Number(t.pnl_norm))}</td>
       <td class="${pnlClass(Number(t.profit_usd))} raw">${fmtMoney(Number(t.profit_usd))}</td>
-      <td class="raw">${esc(t.close_reason || "")}</td>
+      <td class="raw">${esc(t.close_reason || "")}${t.source === "theory" ? " <small>(teorico)</small>" : ""}</td>
       <td class="raw">${esc(t.account || "")}</td>
     </tr>`).join("");
   } catch (e) {

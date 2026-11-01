@@ -152,6 +152,7 @@ class Collector:
                         "ea_journal_dir": acc["ea_journal_dir"],
                         "signal_stats": acc.get("signal_stats"),
                         "start_date": acc.get("start_date"),
+                        "channel_overrides": acc.get("channel_overrides") or [],
                     }
                 )
             if out:
@@ -208,19 +209,24 @@ class Collector:
             return dict(self._snapshot)
 
     def channel_trades(self, channel_id: str, days: int = 30) -> list[dict]:
-        """Trade chiuse del canale `channel_id` negli ultimi `days` giorni UTC (una riga per TP)."""
+        """Trade chiuse del canale `channel_id` negli ultimi `days` giorni UTC (una riga per TP).
+
+        Solo il primo conto (lo stesso che alimenta il P&L/pips delle card canale):
+        gli altri conti replicano gli stessi segnali e duplicherebbero le gambe.
+        """
         from webapp.pnl import (
-            NORM_LOT, _f, build_magic_map, load_trades_range, normalize_channel,
-            signal_volumes, trade_pips,
+            NORM_LOT, _f, apply_channel_overrides, build_magic_map, load_trades_range,
+            normalize_channel, signal_volumes, trade_pips,
         )
         magic_map = build_magic_map(self._tradingo_cfg.get("channels", []))
         result: list[dict] = []
-        for acc in self.cfg.get("accounts", []):
+        for acc in self.accounts[:1]:
             jdir = acc.get("ea_journal_dir")
             if not jdir:
                 continue
             trades_dir = Path(jdir) / "trades"
             rows = load_trades_range(trades_dir, days, acc.get("start_date"))
+            rows = apply_channel_overrides(rows, acc.get("channel_overrides"), days, magic_map)
             sig_vol = signal_volumes(rows)
             for row in rows:
                 if (row.get("event") or "").upper() != "CLOSE":
@@ -245,6 +251,7 @@ class Collector:
                     "close_reason": row.get("close_reason"),
                     "signal_id": row.get("signal_id"),
                     "account": acc.get("label") or acc.get("id"),
+                    "source": row.get("source") or "real",
                 })
         result.sort(key=lambda r: r.get("ts_utc") or "", reverse=True)
         return result
@@ -340,6 +347,7 @@ class Collector:
                 equity_days=int(self.cfg.get("equity_days", 3)),
                 start_date=acc.get("start_date"),
                 magic_map=magic_map,
+                channel_overrides=acc.get("channel_overrides"),
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("phase2 build failed for %s: %s", acc.get("id"), exc)

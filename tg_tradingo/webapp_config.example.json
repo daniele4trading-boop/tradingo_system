@@ -31,7 +31,10 @@
       "id": "ultima",
       "label": "Ultima demo iFunds (Gamehosting)",
       "ea_journal_dir": "\\\\100.74.9.8\\tradingo_journal",
-      "start_date": "2026-08-05"
+      "start_date": "2026-08-05",
+      "channel_overrides": [
+        { "channel": "CH_IVAN", "csv": "C:\\TG_TradinGo\\webapp\\data\\ivan_theory_legs.csv", "until": "2026-11-01" }
+      ]
     }
   ],
 
