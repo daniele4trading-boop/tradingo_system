@@ -208,14 +208,18 @@ class Collector:
             return dict(self._snapshot)
 
     def channel_trades(self, channel_id: str, days: int = 30) -> list[dict]:
-        """Trade chiuse del canale `channel_id` negli ultimi `days` giorni UTC (una riga per TP)."""
+        """Trade chiuse del canale `channel_id` negli ultimi `days` giorni UTC (una riga per TP).
+
+        Solo il primo conto (lo stesso che alimenta il P&L/pips delle card canale):
+        gli altri conti replicano gli stessi segnali e duplicherebbero le gambe.
+        """
         from webapp.pnl import (
             NORM_LOT, _f, build_magic_map, load_trades_range, normalize_channel,
             signal_volumes, trade_pips,
         )
         magic_map = build_magic_map(self._tradingo_cfg.get("channels", []))
         result: list[dict] = []
-        for acc in self.cfg.get("accounts", []):
+        for acc in self.accounts[:1]:
             jdir = acc.get("ea_journal_dir")
             if not jdir:
                 continue

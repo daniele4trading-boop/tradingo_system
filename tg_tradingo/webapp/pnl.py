@@ -178,14 +178,19 @@ NORM_LOT = 0.01
 
 
 def pip_size(symbol: str | None) -> float:
-    """Pip convenzionale = 10 point. XAU 0.1, JPY 0.01, forex 0.0001, BTC 0.1 (point 0.01)."""
+    """Pip convenzionale = 10 point: XAU 0.1, JPY 0.01, forex 0.0001.
+
+    BTC/ETH: pip omogeneo all'oro in valore. Oro 100 oz/lotto -> 1 pip (0,1 $) = 10 $/lotto;
+    BTC 1 BTC/lotto -> 10 $/lotto = 10 $ di prezzo. Quindi 100 pips = 10 $ a 0,01 lotti
+    su entrambi.
+    """
     s = (symbol or "").upper()
     if s.startswith(("XAU", "GOLD")):
         return 0.1
     if s.startswith(("XAG", "SILVER")):
         return 0.01
     if s.startswith(("BTC", "ETH")):
-        return 0.1
+        return 10.0
     if "JPY" in s:
         return 0.01
     return 0.0001
@@ -231,7 +236,11 @@ def _finalize_bucket(b: dict[str, Any]) -> dict[str, Any]:
 
 
 def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map: dict[int, str] | None = None) -> dict[str, Any]:
-    """Per-channel closed PnL for each lookback window (1=today, 7, 30)."""
+    """Per-channel closed PnL for each lookback window (1=today, 7, 30).
+
+    `pips` = somma dei pips realizzati da ogni gamba chiusa (non pesata per volume);
+    `pnl_norm` = P&L riportato a un segnale da NORM_LOT lotti.
+    """
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
 
@@ -257,12 +266,12 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map:
         age_days = (now.date() - ts.date()).days
         ch = normalize_channel(row.get("channel") or row.get("channel_id"), magic=row.get("magic"), magic_map=magic_map)
         vol = _f(row, "volume")
-        # Peso del TP nel segnale: P&L e pips riportati a un segnale da NORM_LOT lotti.
+        # Peso del TP nel segnale: P&L riportato a un segnale da NORM_LOT lotti.
+        # I pips sono invece la somma reale di ogni gamba, indipendente dalla size.
         key = _signal_key(row)
         svol = sig_vol.get(key) or vol
-        share = vol / svol if svol > 0 else 0.0
         pnl_norm = pnl * NORM_LOT / svol if svol > 0 else 0.0
-        pips = trade_pips(row) * share
+        pips = trade_pips(row)
 
         for d in windows_days:
             if age_days >= d:
