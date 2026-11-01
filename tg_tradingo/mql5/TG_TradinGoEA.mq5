@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.34"
+#property version   "2.35"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.34"
+#define EA_VERSION "2.35"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -747,6 +747,7 @@ double   g_rrHi[];
 double   g_rrSl[];
 double   g_rrTp1[];
 datetime g_rrExpiry[];
+double   g_rrDriftPct[];   // >0: entry-drift guard (% of SL distance) instead of range tolerance
 bool     g_rrRetrying = false;
 
 void RangeRetryRemove(const int i)
@@ -763,6 +764,7 @@ void RangeRetryRemove(const int i)
       g_rrSl[k] = g_rrSl[k + 1];
       g_rrTp1[k] = g_rrTp1[k + 1];
       g_rrExpiry[k] = g_rrExpiry[k + 1];
+      g_rrDriftPct[k] = g_rrDriftPct[k + 1];
      }
    ArrayResize(g_rrFile, n - 1);
    ArrayResize(g_rrJson, n - 1);
@@ -773,6 +775,7 @@ void RangeRetryRemove(const int i)
    ArrayResize(g_rrSl, n - 1);
    ArrayResize(g_rrTp1, n - 1);
    ArrayResize(g_rrExpiry, n - 1);
+   ArrayResize(g_rrDriftPct, n - 1);
   }
 
 void RangeRetryDrop(const string channelFile, const string reason)
@@ -788,7 +791,8 @@ void RangeRetryDrop(const string channelFile, const string reason)
   }
 
 void RangeRetryAdd(const string channelFile, const string json, const string symbol,
-                   const string direction, const double lo, const double hi)
+                   const string direction, const double lo, const double hi,
+                   const double driftPct = 0.0)
   {
    if(InpRangeRetrySec <= 0 || g_rrRetrying)
       return;
@@ -803,7 +807,9 @@ void RangeRetryAdd(const string channelFile, const string json, const string sym
    ArrayResize(g_rrSl, n + 1);
    ArrayResize(g_rrTp1, n + 1);
    ArrayResize(g_rrExpiry, n + 1);
+   ArrayResize(g_rrDriftPct, n + 1);
    g_rrFile[n] = channelFile;
+   g_rrDriftPct[n] = driftPct;
    g_rrJson[n] = json;
    g_rrSymbol[n] = symbol;
    g_rrDir[n] = direction;
@@ -813,10 +819,16 @@ void RangeRetryAdd(const string channelFile, const string json, const string sym
    double tps[];
    g_rrTp1[n] = (JsonGetNumberArray(json, "tp_levels", tps) && ArraySize(tps) > 0) ? tps[0] : 0.0;
    g_rrExpiry[n] = TimeCurrent() + InpRangeRetrySec;
-   Print("[TradinGo] RANGE_RETRY_PENDING ", channelFile, " ", symbol, " ", direction,
-         " range=[", DoubleToString(lo, (int)g_sym.Digits()), ",",
-         DoubleToString(hi, (int)g_sym.Digits()), "] for ", InpRangeRetrySec,
-         "s — opens when price is back within tolerance");
+   if(driftPct > 0.0)
+      Print("[TradinGo] RANGE_RETRY_PENDING ", channelFile, " ", symbol, " ", direction,
+            " entry=", DoubleToString(lo, (int)g_sym.Digits()), " max_drift=",
+            DoubleToString(driftPct, 1), "% of SL distance for ", InpRangeRetrySec,
+            "s — opens when price is back near the entry");
+   else
+      Print("[TradinGo] RANGE_RETRY_PENDING ", channelFile, " ", symbol, " ", direction,
+            " range=[", DoubleToString(lo, (int)g_sym.Digits()), ",",
+            DoubleToString(hi, (int)g_sym.Digits()), "] for ", InpRangeRetrySec,
+            "s — opens when price is back within tolerance");
   }
 
 void ProcessRangeRetry()
@@ -849,10 +861,19 @@ void ProcessRangeRetry()
          RangeRetryRemove(i);
          continue;
         }
-      double dist = 0.0;
-      int maxTol = RangeToleranceForChannel(g_rrFile[i], g_rrJson[i]);
-      if(EvaluateEntryRange(g_rrSymbol[i], g_rrDir[i], g_rrLo[i], g_rrHi[i], maxTol, px, dist) == ENTRY_CANCELLED)
-         continue;
+      if(g_rrDriftPct[i] > 0.0)
+        {
+         double slDist = MathAbs(g_rrLo[i] - g_rrSl[i]);
+         if(slDist > 0.0 && MathAbs(px - g_rrLo[i]) / slDist * 100.0 > g_rrDriftPct[i])
+            continue;
+        }
+      else
+        {
+         double dist = 0.0;
+         int maxTol = RangeToleranceForChannel(g_rrFile[i], g_rrJson[i]);
+         if(EvaluateEntryRange(g_rrSymbol[i], g_rrDir[i], g_rrLo[i], g_rrHi[i], maxTol, px, dist) == ENTRY_CANCELLED)
+            continue;
+        }
       string file = g_rrFile[i];
       string json = g_rrJson[i];
       string action = JsonGetString(json, "action");
@@ -1757,7 +1778,15 @@ bool HandleUpdateOpen(const string channelFile, const string json)
       if(!EntryDriftAllows(channelFile, json, symbol, direction, updEntry, sl,
                            InpUpdateOpenMaxDriftPctOfSl, "UPDATE_OPEN_CANCELLED",
                            "CANCELLED_UPDATE_OPEN_DRIFT"))
+        {
+         // v2.35: keep the setup pending (InpRangeRetrySec) and open it when the
+         // price comes back within the drift tolerance (Hybrid 21/10 and 27/10:
+         // cancelled at 46-48% drift, price returned to the entry, then TP1/TP2).
+         if(updEntry > 0.0 && sl > 0.0)
+            RangeRetryAdd(channelFile, json, symbol, direction, updEntry, updEntry,
+                          InpUpdateOpenMaxDriftPctOfSl);
          return true;
+        }
       Print("[TradinGo] UPDATE_OPEN but no positions — opening fresh");
       return OpenSplitTrades(symbol, direction, lot, sl, tps, magicBase,
                              channelFile, json, entryStatus, rangeLo, rangeHi, distPoints);

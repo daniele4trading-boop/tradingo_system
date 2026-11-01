@@ -1,11 +1,11 @@
-; TG_TradinGoEA — preset conto REALE Xlence (5510042850, EUR): solo canale IVAN
+; TG_TradinGoEA — preset conto REALE Xlence (5510042850, EUR): IVAN + Hybrid Gold/Forex (0.02 per gamba, dal 1/11)
 ; Lotti fissi 0.05 per posizione (setup IVAN = 4 TP -> 0.20 lotti totali).
 ; Nessun guard DD/killswitch (scelta dell'utente: conto a rischio accettato).
 ; Suffisso simbolo del broker: "(nessuno)".
 ; Tolleranza off-market 200 pt, BE all'entry del segnale con fallback al fill (EA >= 2.26).
 InpSignalsPath=
 InpUseAbsolutePath=false
-InpChannels=ivan
+InpChannels=ivan,hybridgold,hybridfx
 InpSymbolSuffix=
 InpLotMultiplier=1.0
 InpAddLotFactor=0.5
@@ -14,11 +14,15 @@ InpLotStark=0.0
 InpLotGold=0.0
 InpLotOro=0.0
 InpLotForex=0.0
+InpLotHybridGold=0.02
+InpLotHybridFx=0.02
 InpTagIvan=IT
 InpTagStark=AS
 InpTagGold=
 InpTagOro=
 InpTagForex=
+InpTagHybridGold=HG
+InpTagHybridFx=HF
 InpCommentUseTgPrefix=false
 InpMaxSlippagePoints=50
 InpPollMs=500
@@ -66,4 +70,6 @@ InpDdFloatStark=10.4
 InpDdFloatGold=15.0
 InpDdFloatOro=12.4
 InpDdFloatForex=20.0
+InpDdFloatHybridGold=15.0
+InpDdFloatHybridFx=20.0
 InpMaxConcurrentLots=0.0
