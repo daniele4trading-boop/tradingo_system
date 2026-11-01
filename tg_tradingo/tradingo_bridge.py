@@ -75,7 +75,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.33"
+BRIDGE_VERSION = "2.34"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -3107,6 +3107,17 @@ _HYBRID_TRADES: dict[tuple[str, int], dict] = {}
 _HYBRID_LAST: dict[str, dict] = {}
 
 
+def hybrid_forget_signal(ch: dict, msg_id: int | None) -> None:
+    """Un OPEN Hybrid scartato dalla validazione (es. EURGBP 27/10: entry 0.73675
+    per refuso) non deve bloccare l'EDIT correttivo come "segnale già aperto"."""
+    if msg_id is None:
+        return
+    tag = ch.get("id", "HYBRID")
+    trade = _HYBRID_TRADES.pop((tag, int(msg_id)), None)
+    if trade is not None and _HYBRID_LAST.get(tag) is trade:
+        _HYBRID_LAST.pop(tag, None)
+
+
 def _hybrid_target(ch: dict, reply_to: int | None) -> dict | None:
     if reply_to is not None:
         t = _HYBRID_TRADES.get((ch["id"], int(reply_to)))
@@ -3526,6 +3537,8 @@ async def run_bridge():
                         "payload": signal,
                         "targets": meta.get("written_targets") or [],
                     })
+                elif ch_cfg["parser"] == "hybrid" and signal.get("action") in ("OPEN", "UPDATE_OPEN"):
+                    hybrid_forget_signal(ch_cfg, message_id)
             else:
                 outcome = "IGNORED_PATTERN" if matched_ignore else "UNPARSED"
                 append_bridge_event(CONFIG, {

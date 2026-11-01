@@ -73,3 +73,17 @@ def test_sl_moves_and_false_closes():
 def test_sl_far_from_entry_ignored():
     _p("Buy ltcusd 55.20\nSl: 54.00\nTp1: 57.00", msg_id=60)
     assert _p("Come potete notare il nostro stop loss è di 1.24 euro", reply_to=60) is None
+
+
+def test_rejected_open_forgotten_so_corrective_edit_opens():
+    # 27/10: entry 0.73675 (refuso), TP incoerenti → scartato dal bridge; EDIT 11 s dopo con 0.83675
+    s = _p("Low Risk\n\n🔴SELL EURGBP 0.73675\n\nTP1 0.83320\nTP2 0.82970\nTP3 open\n\nSL 0.84035", FX, msg_id=3300)
+    assert s["action"] == "OPEN"
+    assert _p("Low Risk\n\n🔴SELL EURGBP 0.83675\n\nTP1 0.83320\nTP2 0.82970\nTP3 open\n\nSL 0.84035",
+              FX, msg_id=3300, is_edit=True) is None
+    tb.hybrid_forget_signal(FX, 3300)
+    s = _p("Low Risk\n\n🔴SELL EURGBP 0.83675\n\nTP1 0.83320\nTP2 0.82970\nTP3 open\n\nSL 0.84035",
+           FX, msg_id=3300, is_edit=True)
+    assert s["action"] == "OPEN" and s["entry"] == 0.83675
+    assert tb.coerce_edit_open_to_update(s, True)["action"] == "UPDATE_OPEN"
+    assert _p("Stoploss preso", FX, reply_to=3300)["action"] == "CHECK_AND_CLOSE"
