@@ -300,7 +300,7 @@ async function loadChannel(channelId, days) {
       <td class="${pnlClass(Number(t.pips))}">${fmtPips(t.pips)}</td>
       <td class="${pnlClass(Number(t.pnl_norm))}">${fmtMoney(Number(t.pnl_norm))}</td>
       <td class="${pnlClass(Number(t.profit_usd))} raw">${fmtMoney(Number(t.profit_usd))}</td>
-      <td class="raw">${esc(t.close_reason || "")}</td>
+      <td class="raw">${esc(t.close_reason || "")}${t.source === "theory" ? " <small>(teorico)</small>" : ""}</td>
       <td class="raw">${esc(t.account || "")}</td>
     </tr>`).join("");
   } catch (e) {

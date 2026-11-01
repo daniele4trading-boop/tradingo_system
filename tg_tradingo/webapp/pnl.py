@@ -131,6 +131,53 @@ def load_trades_range(
     return rows
 
 
+def apply_channel_overrides(
+    rows: list[dict],
+    overrides: list[dict] | None,
+    days: int,
+    magic_map: dict[int, str] | None = None,
+) -> list[dict]:
+    """Sostituisce, per un canale, le gambe reali con quelle di un CSV esterno (stesso
+    formato trades_*.csv) fino alla data `until` (UTC, esclusa).
+
+    Uso: canale IVAN prima dell'1/11/2026 = gambe "teoriche" (simulazione sui messaggi
+    di Ivan, senza i bug di bridge/EA); dopo `until` tornano le gambe reali del conto.
+    override = {"channel": "CH_IVAN", "csv": "path", "until": "2026-11-01"}
+    """
+    if not overrides:
+        return rows
+    now = datetime.now(timezone.utc)
+    cutoff_days = (now - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    out = list(rows)
+    for ov in overrides:
+        ch_id = ov.get("channel")
+        until = ov.get("until") or ""
+        path = ov.get("csv")
+        if not ch_id or not path:
+            continue
+
+        def _before_until(r: dict) -> bool:
+            ts = r.get("close_time_utc") or r.get("ts_utc") or ""
+            return bool(until) and ts[:10] < until
+
+        out = [
+            r
+            for r in out
+            if not (
+                normalize_channel(r.get("channel") or r.get("channel_id"), magic=r.get("magic"), magic_map=magic_map) == ch_id
+                and _before_until(r)
+            )
+        ]
+        for r in _timed_read_csv(Path(path)):
+            ts = r.get("close_time_utc") or r.get("ts_utc") or ""
+            if ts[:10] < cutoff_days or (until and ts[:10] >= until):
+                continue
+            r.setdefault("channel", ch_id)
+            r["source"] = "theory"
+            out.append(r)
+    return out
+
+
 def load_equity_range(
     equity_dir: Path, days: int, start_date: str | None = None
 ) -> list[dict]:
@@ -421,6 +468,7 @@ def build_phase2(
     equity_days: int = 3,
     start_date: str | None = None,
     magic_map: dict[int, str] | None = None,
+    channel_overrides: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Full Phase-2 payload for the dashboard API."""
     root = Path(ea_journal_dir) if ea_journal_dir else None
@@ -438,6 +486,7 @@ def build_phase2(
     trades = (
         load_trades_range(trades_dir, lookback_days, start_date) if trades_dir else []
     )
+    trades = apply_channel_overrides(trades, channel_overrides, lookback_days, magic_map)
     # For open positions we need enough history that an OPEN from days ago still shows
     equity_rows = (
         load_equity_range(equity_dir, equity_days, start_date) if equity_dir else []
