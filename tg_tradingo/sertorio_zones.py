@@ -22,10 +22,10 @@ import logging
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from collections.abc import Callable
 
 from ivan_interpreter import InterpreterConfig, _extract_json, anthropic_complete
 
@@ -596,7 +596,9 @@ class ShadowBook:
     def save(self) -> None:
         if not self.state_path:
             return
-        atomic_write_json(self.state_path, {"pending": self.pending, "open": self.open, "closed": self.closed[-500:],
+        atomic_write_json(self.state_path, {**getattr(self, "extra", {}), "pending": self.pending, "open": self.open,
+                                            "closed": self.closed[-500:], "stats_7d": self.stats(7),
+                                            "stats_30d": self.stats(30),
                                             "updated_utc": _ts(datetime.now(timezone.utc))})
 
     # ── statistiche ──

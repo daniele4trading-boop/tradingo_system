@@ -290,6 +290,7 @@ class Collector:
                 worst = lt["status"]
 
         mt5_terminals = self._discover_mt5_terminals()
+        sertorio = self._load_sertorio()
         alerts = [
             f"MT5 spento ma dati presenti: {t['broker_name']} ({t['terminal_id'][:8]}…)"
             for t in mt5_terminals if not t["running"] and t["has_data"]
@@ -309,6 +310,7 @@ class Collector:
             "exec": phase2.get("exec"),
             "sources": phase2.get("sources"),
             "mt5_terminals": mt5_terminals,
+            "sertorio": sertorio,
             "alerts": alerts,
             "accounts": [
                 {
@@ -323,6 +325,34 @@ class Collector:
                 }
                 for acc in accounts
             ],
+        }
+
+    def _load_sertorio(self) -> dict | None:
+        """Zone/setup dell'ultima analisi Sertorio + esiti shadow (state/sertorio_*.json)."""
+        paths = self._tradingo_cfg.get("paths") or {}
+        base = paths.get("base")
+        state = Path(paths.get("state") or (Path(base) / "state" if base else ""))
+        if not base and not paths.get("state"):
+            return None
+        out: dict = {}
+        for key, name in (("zones", "sertorio_zones.json"), ("shadow", "sertorio_shadow.json")):
+            p = state / name
+            if p.exists():
+                try:
+                    out[key] = json.loads(p.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001
+                    out[key] = None
+        if not out:
+            return None
+        z = out.get("zones") or {}
+        z.pop("text", None)
+        sh = out.get("shadow") or {}
+        return {
+            "analysis_id": z.get("analysis_id"), "ts_utc": z.get("ts_utc"), "shadow": z.get("shadow", True),
+            "analysis": z.get("analysis"), "setups": z.get("setups") or [],
+            "pending": sh.get("pending") or [], "open": sh.get("open") or [],
+            "closed": (sh.get("closed") or [])[-30:][::-1],
+            "stats_7d": sh.get("stats_7d"), "stats_30d": sh.get("stats_30d"), "shadow_updated_utc": sh.get("updated_utc"),
         }
 
     def _build_account(self, acc: dict, magic_map: dict | None = None) -> dict:

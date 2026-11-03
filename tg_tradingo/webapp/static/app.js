@@ -193,6 +193,39 @@ function renderChannels(channels) {
   $("channels").innerHTML = html || '<div class="card">Nessun canale attivo</div>';
 }
 
+function renderSertorio(sz) {
+  const el = $("sertorio");
+  if (!el) return;
+  if (!sz || !sz.analysis) {
+    el.innerHTML = '<div class="card">Nessuna analisi Sertorio interpretata</div>';
+    return;
+  }
+  const a = sz.analysis;
+  const zones = (a.zones || []).slice().sort((x, y) => y.hi - x.hi);
+  const zoneRow = (z) => `<tr><td>${z.kind === "resistance" ? "🔴" : "🟢"} ${z.lo === z.hi ? z.lo : z.lo + " – " + z.hi}${z.key ? " 🔑" : ""}</td><td class="muted">${esc(z.note || "")}</td></tr>`;
+  const setupRow = (s, status) => `<tr><td><b class="${s.direction === "BUY" ? "pos" : "neg"}">${s.direction}</b> ${s.entry_lo === s.entry_hi ? s.entry_lo : s.entry_lo + "–" + s.entry_hi}</td>
+      <td>SL ${s.sl}</td><td>TP ${(s.tps || []).join(" / ")}</td><td class="muted">${esc(status)}</td></tr>`;
+  const pendingIds = new Set((sz.pending || []).map((p) => p.id));
+  const openIds = new Set((sz.open || []).map((o) => o.setup_id));
+  const statusOf = (s) => openIds.has(s.id) ? "APERTO (virtuale)" : pendingIds.has(s.id) ? "in attesa del tocco" : (sz.shadow_updated_utc ? "chiuso/scaduto" : "monitor spento");
+  const st7 = sz.stats_7d || {}, st30 = sz.stats_30d || {};
+  const closedRows = (sz.closed || []).slice(0, 12).map((c) => `<tr><td>${fmtTs(c.close_ts)}</td><td>${esc(c.direction)} T${c.tp_index}</td><td>${c.fill} → ${c.close}</td><td>${esc(c.reason)}</td><td class="${pnlClass(c.pips)}">${fmtPips(c.pips)}</td></tr>`).join("");
+  el.innerHTML = `<div class="card">
+      <div class="head"><span class="name">${esc(a.symbol || "XAUUSD")} · analisi ${fmtTs(sz.ts_utc)}</span>
+        <span class="badge">${sz.shadow ? "SHADOW" : "LIVE"}</span></div>
+      <div class="counts"><span>Bias long <b>${a.bias_long_pct ?? "–"}%</b></span><span>Livello chiave <b>${a.key_level ?? "–"}</b></span><span>Prezzo <b>${a.current_price ?? "–"}</b></span></div>
+      <div class="lastmsg">${esc(a.summary || "")}</div>
+      <table class="events"><tbody>${zones.map(zoneRow).join("")}</tbody></table>
+    </div>
+    <div class="card">
+      <div class="head"><span class="name">Setup condizionali</span>
+        <span class="pnl-meta">7g <b class="${pnlClass(st7.pips)}">${fmtPips(st7.pips || 0)}</b> (${st7.legs || 0} gambe) · 30g <b class="${pnlClass(st30.pips)}">${fmtPips(st30.pips || 0)}</b> (${st30.legs || 0})</span></div>
+      <table class="events"><tbody>${(sz.setups || []).map((s) => setupRow(s, statusOf(s))).join("") || "<tr><td>nessun setup</td></tr>"}</tbody></table>
+      <div class="muted" style="margin-top:6px">Ultime chiusure virtuali</div>
+      <table class="events"><tbody>${closedRows || "<tr><td>—</td></tr>"}</tbody></table>
+    </div>`;
+}
+
 function renderOpens(accounts) {
   const rows = [];
   (accounts || []).forEach((acc) => {
@@ -245,6 +278,7 @@ async function refresh() {
     renderAccounts(accounts);
     renderChannels(data.channels || []);
     renderOpens(accounts);
+    renderSertorio(data.sertorio);
     renderEvents(data.events || []);
   } catch (err) {
     $("updated").textContent = "offline?";
