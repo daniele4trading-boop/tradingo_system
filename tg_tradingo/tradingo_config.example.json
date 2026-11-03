@@ -174,11 +174,27 @@
       "enabled": false,
       "telegram_id": -1003871039877,
       "name": "Matteo Sertorio - Canale pubblico",
-      "parser": "placeholder",
+      "parser": "sertorio_zones",
       "signal_file": "signal_ch_sertorio.json",
-      "magic_base": null,
+      "magic_base": 18000,
+      "interpreter": {
+        "enabled": true,
+        "model": "claude-sonnet-4-5",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "max_tokens": 1500,
+        "notes": "Analisi -> zone/idee strutturate (fallback parser regex se il modello non risponde)."
+      },
+      "setups": {
+        "shadow": true,
+        "use_ideas": true,
+        "derive_from_zones": false,
+        "sl_buffer": 5.0,
+        "max_tps": 3,
+        "expire_utc_hour": 21,
+        "notes": "Setup a tocco dalle idee LONG/SHORT dell'analisi. shadow=true: nessun ordine, esiti in state/sertorio_shadow.json via tools/sertorio_shadow.py."
+      },
       "execution": {
-        "notes": "Solo analisi: nessun segnale, livelli per TG_TradinGoLevels."
+        "notes": "Livelli per TG_TradinGoLevels + zone/setup shadow. Nessun segnale reale finché setups.shadow=true."
       }
     }
   ],

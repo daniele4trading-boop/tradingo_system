@@ -45,6 +45,7 @@ from bridge_core import (
     validate_signal,
 )
 from bridge_journal import append_bridge_event, write_heartbeat
+import sertorio_zones
 from ivan_interpreter import (
     InterpreterConfig,
     IvanInterpreter,
@@ -3237,6 +3238,7 @@ PARSERS = {
     "ivan_btc":   parser_ivan_btc,
     "hybrid":     parser_hybrid,
     "placeholder": lambda _t, _c: None,
+    "sertorio_zones": lambda _t, _c: None,  # analisi -> zone/setup shadow, nessun segnale
 }
 
 def get_parser(name: str):
@@ -3372,6 +3374,22 @@ async def run_bridge():
 
     client = TelegramClient(tg_cfg["session_file"], tg_cfg["api_id"], tg_cfg["api_hash"])
 
+    async def sertorio_analyze(ch_cfg: dict, text: str):
+        """Interprete analisi Sertorio fuori dal percorso dei segnali (mai bloccante)."""
+        try:
+            doc = await asyncio.to_thread(
+                sertorio_zones.handle_analysis, ch_cfg, text, STATE_DIR
+            )
+            if doc:
+                append_bridge_event(CONFIG, {
+                    "ts_utc": doc["ts_utc"], "channel_id": ch_cfg["id"],
+                    "chat_id": ch_cfg.get("telegram_id"), "event_type": "ANALYSIS",
+                    "raw_text": text[:200], "outcome": "ZONES_SHADOW" if doc["shadow"] else "ZONES",
+                    "payload": {"analysis_id": doc["analysis_id"], "setups": doc["setups"]},
+                })
+        except Exception as e:
+            log.error(f"[SZ] errore analisi: {e}\n{traceback.format_exc()}")
+
     async def process_message(event, is_edit: bool = False):
         """Handler condiviso per messaggi nuovi e modificati."""
         try:
@@ -3428,6 +3446,8 @@ async def run_bridge():
                         log.info(f"[CH2] EDIT con dati completi → forzo UPDATE_OPEN {direction}")
 
             update_levels_safe(ch_cfg, text)
+            if ch_cfg["parser"] == "sertorio_zones" and not is_edit:
+                asyncio.create_task(sertorio_analyze(ch_cfg, text))
 
             matched_ignore = matched_ignore_pattern(
                 ch_cfg["parser"], strip_md(text).upper()
