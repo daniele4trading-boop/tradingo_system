@@ -92,6 +92,7 @@ class InterpreterConfig:
     debounce_sec: float = DEFAULT_DEBOUNCE_SEC
     context_messages: int = DEFAULT_CONTEXT_MESSAGES
     timeout_sec: float = DEFAULT_TIMEOUT_SEC
+    max_tokens: int = 300
 
     @classmethod
     def from_channel(cls, ch: dict) -> InterpreterConfig:
@@ -200,7 +201,7 @@ def anthropic_complete(system: str, user: str, cfg: InterpreterConfig) -> str:
         raise RuntimeError(f"variabile {cfg.api_key_env} assente")
     body = json.dumps({
         "model": cfg.model,
-        "max_tokens": 300,
+        "max_tokens": int(cfg.max_tokens),
         "temperature": 0,
         "system": system,
         "messages": [{"role": "user", "content": user}],
