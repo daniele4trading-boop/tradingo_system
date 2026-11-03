@@ -175,6 +175,7 @@ footer {
 /* ── equity / pnl (fase 2) ── */
 
 .grid.accounts { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.grid.sertorio { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
 
 .account-card .head {
   display: flex;
