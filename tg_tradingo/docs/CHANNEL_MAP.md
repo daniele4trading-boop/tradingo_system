@@ -62,7 +62,7 @@
 
 | Campo | Valore |
 |-------|--------|
-| telegram_id | **-1002112242007** (confermato 20 lug 2026) |
+| telegram_id | **-1004475607491** (canale "IvanTrades - VIP 2.0", sostituisce "IvanTrades - VIP" -1002112242007 dal 5 nov 2026) |
 | Parser | `ivan_vip` |
 | TP standard | **4** (4 × 0.10 lotto; `Meta size` / `METÀ SIZE` / `MEZZA SIZE` → 4 × 0.05) |
 | Trade demo | 4 × 0.10 (o 4 × 0.05 con Meta/METÀ size) |

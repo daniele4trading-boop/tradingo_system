@@ -98,8 +98,8 @@
     {
       "id": "CH_IVAN",
       "enabled": false,
-      "telegram_id": -1002112242007,
-      "name": "IvanTrades - VIP",
+      "telegram_id": -1004475607491,
+      "name": "IvanTrades - VIP 2.0",
       "parser": "ivan_vip",
       "signal_file": "signal_ch_ivan.json",
       "magic_base": 17000,

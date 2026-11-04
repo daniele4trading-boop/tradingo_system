@@ -83,8 +83,8 @@ CHANNELS = [
     {
         "id": "CH_IVAN",
         "enabled": False,
-        "telegram_id": -1002112242007,
-        "name": "IvanTrades - VIP",
+        "telegram_id": -1004475607491,
+        "name": "IvanTrades - VIP 2.0",
         "parser": "placeholder",
         "signal_file": "signal_ch_ivan.json",
         "magic_base": 17000,
