@@ -7,6 +7,13 @@ function dot(status) {
   return `<span class="dot ${cls}"></span>`;
 }
 
+function fmtDateTs(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d)) return ts;
+  return d.toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function fmtTs(ts) {
   if (!ts) return "—";
   const d = new Date(ts);
@@ -209,9 +216,9 @@ function renderSertorio(sz) {
   const openIds = new Set((sz.open || []).map((o) => o.setup_id));
   const statusOf = (s) => openIds.has(s.id) ? "APERTO (virtuale)" : pendingIds.has(s.id) ? "in attesa del tocco" : (sz.shadow_updated_utc ? "chiuso/scaduto" : "monitor spento");
   const st7 = sz.stats_7d || {}, st30 = sz.stats_30d || {};
-  const closedRows = (sz.closed || []).slice(0, 12).map((c) => `<tr><td>${fmtTs(c.close_ts)}</td><td>${esc(c.direction)} T${c.tp_index}</td><td>${c.fill} → ${c.close}</td><td>${esc(c.reason)}</td><td class="${pnlClass(c.pips)}">${fmtPips(c.pips)}</td></tr>`).join("");
+  const closedRows = (sz.closed || []).slice(0, 12).map((c) => `<tr><td>${fmtDateTs(c.close_ts)}</td><td>${esc(c.direction)} T${c.tp_index}</td><td>${c.fill} → ${c.close}</td><td>${esc(c.reason)}</td><td class="${pnlClass(c.pips)}">${fmtPips(c.pips)}</td></tr>`).join("");
   el.innerHTML = `<div class="card">
-      <div class="head"><span class="name">${esc(a.symbol || "XAUUSD")} · analisi ${fmtTs(sz.ts_utc)}</span>
+      <div class="head"><span class="name">${esc(a.symbol || "XAUUSD")} · analisi ${fmtDateTs(sz.ts_utc)}</span>
         <span class="badge">${sz.shadow ? "SHADOW" : "LIVE"}</span></div>
       <div class="counts"><span>Bias long <b>${a.bias_long_pct ?? "–"}%</b></span><span>Livello chiave <b>${a.key_level ?? "–"}</b></span><span>Prezzo <b>${a.current_price ?? "–"}</b></span></div>
       <div class="lastmsg">${esc(a.summary || "")}</div>
