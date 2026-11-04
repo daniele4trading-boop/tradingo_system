@@ -136,3 +136,42 @@ def test_handle_analysis_writes_state_and_no_live(tmp_path):
     saved = json.loads((tmp_path / sz.ZONES_FILE).read_text(encoding="utf-8"))
     assert saved["analysis_id"] == "SZ202610281207" and Analysis.from_dict(saved["analysis"]).key_level == 4028
     assert handle_analysis(ch, "TP PRESO", tmp_path, TS) is None
+
+
+def test_build_open_signal_and_live_paths(tmp_path):
+    from sertorio_zones import (
+        ShadowBook,
+        build_open_signal,
+        live_signal_paths,
+        write_live_signal,
+    )
+
+    scfg = SetupConfig(shadow=False, live_instances=["Vantage"], live_lot=0.02)
+    setup = {"id": "s1", "symbol": "XAUUSD", "direction": "BUY", "entry_lo": 4000.0, "entry_hi": 4003.0,
+             "sl": 3990.0, "tps": [4010.0, 4020.0], "source": "idea", "expires_utc": "2099-01-01T00:00:00Z",
+             "analysis_ts": "2026-11-01T00:00:00Z"}
+    ch = {"id": "CH_SERTORIO", "name": "Sertorio", "magic_base": 18000, "signal_file": "signal_ch_sertorio.json"}
+    ts = datetime(2026, 11, 2, 10, 0, tzinfo=timezone.utc)
+    sig = build_open_signal(setup, 4002.5, ch, scfg, ts)
+    assert sig["action"] == "OPEN" and sig["trades"] == 2 and sig["fixed_lot"] == 0.02
+    assert sig["entry_range"] == [4000.0, 4003.0] and sig["magic_base"] == 18000
+    assert sig["signal_id"] == "SZ-s1" and "entry" not in sig
+
+    cfg = {"mt5_instances": [
+        {"name": "Vantage", "signals_path": str(tmp_path / "v")},
+        {"name": "Axi", "signals_path": str(tmp_path / "a")},
+        {"name": "Xlence", "enabled": False, "signals_path": str(tmp_path / "x")},
+    ]}
+    paths = live_signal_paths(cfg, scfg)
+    assert paths == [tmp_path / "v"]
+    (tmp_path / "v").mkdir()
+    written = write_live_signal(paths, ch["signal_file"], sig)
+    assert written == [tmp_path / "v" / "signal_ch_sertorio.json"]
+    assert json.loads(written[0].read_text())["direction"] == "BUY"
+    assert not (tmp_path / "a").exists()
+
+    fills: list[tuple[str, float]] = []
+    book = ShadowBook(scfg, on_fill=lambda p, fill, _ts: fills.append((p["id"], fill)))
+    book.replace_setups([sz.Setup(**setup)], ts)
+    book.on_tick(ts, 4002.4, 4002.6)
+    assert fills == [("s1", 4002.5)] and len(book.open) == 2

@@ -391,6 +391,8 @@ class SetupConfig:
     expire_utc_hour: int = 21     # fine giornata: scadenza dei setup non ancora toccati
     touch_tolerance: float = 0.0  # $ di anticipo sul bordo della zona
     max_open_hours: int = 48      # chiusura forzata gambe aperte
+    live_instances: list[str] = field(default_factory=list)  # nomi mt5_instances che ricevono gli OPEN (shadow=false)
+    live_lot: float = 0.01        # fixed_lot nel payload; il lotto vero è InpLotSertorio del preset
 
     @classmethod
     def from_channel(cls, ch: dict) -> SetupConfig:
@@ -472,8 +474,10 @@ def _parse_ts(s: str) -> datetime:
 class ShadowBook:
     """Setup pendenti -> gambe virtuali (una per TP) -> chiusure; tutto in memoria + JSON/CSV."""
 
-    def __init__(self, cfg: SetupConfig, state_path: Path | None = None, csv_path: Path | None = None):
+    def __init__(self, cfg: SetupConfig, state_path: Path | None = None, csv_path: Path | None = None,
+                 on_fill: Callable[[dict, float, datetime], None] | None = None):
         self.cfg = cfg
+        self.on_fill = on_fill
         self.state_path = state_path
         self.csv_path = csv_path
         self.pending: list[dict] = []
@@ -547,6 +551,11 @@ class ShadowBook:
                 self._event("EXPIRE", ts, p, reason="end_of_day")
 
     def _fill(self, ts: datetime, p: dict, fill: float) -> None:
+        if self.on_fill is not None:
+            try:
+                self.on_fill(p, fill, ts)
+            except Exception as e:  # noqa: BLE001
+                log.error(f"[{TAG}] on_fill fallito per {p.get('id')}: {e}")
         for n, tp in enumerate(p["tps"], 1):
             leg = {**{k: p[k] for k in ("id", "symbol", "direction", "entry_lo", "entry_hi", "sl", "source")},
                    "setup_id": p["id"], "tp_index": n, "tp": tp, "fill": fill, "open_ts": _ts(ts)}
@@ -632,6 +641,60 @@ SHADOW_STATE_FILE = "sertorio_shadow.json"
 SHADOW_CSV_FILE = "sertorio_shadow.csv"
 
 
+def build_open_signal(setup: dict, fill: float, ch_cfg: dict, scfg: SetupConfig, ts: datetime) -> dict:
+    """Setup toccato -> payload OPEN per l'EA (stesso contratto del bridge, docs/EA_SPEC.md).
+
+    `entry_range` = zona del setup: l'EA apre a mercato se il prezzo è dentro (o entro la
+    tolleranza), altrimenti tiene l'OPEN pendente `InpRangeRetrySec`. Il lotto reale lo decide
+    il preset del terminale (`InpLotSertorio`); `fixed_lot` è il fallback.
+    """
+    tps = list(setup["tps"])
+    return {
+        "action": "OPEN",
+        "symbol": setup["symbol"],
+        "direction": setup["direction"],
+        "entry_range": [float(setup["entry_lo"]), float(setup["entry_hi"])],
+        "sl": float(setup["sl"]),
+        "tp_levels": [float(t) for t in tps],
+        "trades": len(tps),
+        "fixed_lot": float(scfg.live_lot),
+        "use_fixed_lot": True,
+        "magic_base": int(ch_cfg.get("magic_base", 18000)),
+        "channel_id": ch_cfg.get("id", "CH_SERTORIO"),
+        "channel_name": ch_cfg.get("name", "Sertorio"),
+        "signal_id": f"SZ-{setup['id']}",
+        "source": setup.get("source", ""),
+        "touch_price": float(fill),
+        "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def live_signal_paths(cfg: dict, scfg: SetupConfig) -> list[Path]:
+    """Solo le mt5_instances elencate in setups.live_instances (es. ["Vantage"])."""
+    want = {str(n).lower() for n in scfg.live_instances}
+    out: list[Path] = []
+    for inst in cfg.get("mt5_instances", []):
+        if not inst.get("enabled", True):
+            continue
+        if str(inst.get("name", "")).lower() in want:
+            out.append(Path(inst["signals_path"]))
+    return out
+
+
+def write_live_signal(paths: list[Path], signal_file: str, signal: dict) -> list[Path]:
+    written: list[Path] = []
+    for d in paths:
+        try:
+            atomic_write_json(d / signal_file, signal)
+            written.append(d / signal_file)
+            log.info(f"[{TAG} LIVE] -> {d / signal_file} {signal['direction']} {signal['symbol']} "
+                     f"zone={signal['entry_range']} sl={signal['sl']} tps={signal['tp_levels']} "
+                     f"sid={signal['signal_id']}")
+        except Exception as e:  # noqa: BLE001
+            log.error(f"[{TAG} LIVE] scrittura {d / signal_file} fallita: {e}")
+    return written
+
+
 def handle_analysis(ch_cfg: dict, text: str, state_dir: Path, now: datetime | None = None,
                     completer: Completer | None = None) -> dict | None:
     """Analisi -> interprete -> setup -> state/sertorio_zones.json (letto da shadow e webapp).
@@ -662,5 +725,6 @@ def handle_analysis(ch_cfg: dict, text: str, state_dir: Path, now: datetime | No
                  f"{s.direction} {s.entry_lo:g}-{s.entry_hi:g} SL {s.sl:g} TP {'/'.join(f'{t:g}' for t in s.tps)}"
                  for s in setups))
     if not scfg.shadow:
-        log.warning(f"[{TAG}] modalità LIVE non ancora supportata: i setup restano in shadow")
+        log.info(f"[{TAG}] modalità LIVE: gli ordini al tocco li emette tools/sertorio_shadow.py "
+                 f"verso {scfg.live_instances or 'NESSUNA istanza (live_instances vuoto)'}")
     return doc

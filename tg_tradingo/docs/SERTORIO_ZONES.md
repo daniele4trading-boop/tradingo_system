@@ -18,7 +18,12 @@ analisi Telegram (canale pubblico)
 - `setups.use_ideas` (default on): le idee LONG/SHORT esplicite dell'analista (entry/SL/TP).
 - `setups.derive_from_zones` (default off): BUY su supporto / SELL su resistenza con SL = zona ± `sl_buffer`, TP = zone successive.
 - Una nuova analisi annulla i setup pendenti precedenti; le gambe virtuali aperte restano.
-- `setups.shadow=false` non è ancora supportato (il bridge logga un warning e resta shadow).
+- `setups.shadow=false` + `setups.live_instances` (es. `["Vantage"]`): `tools/sertorio_shadow.py` al tocco
+  di un setup scrive un `OPEN` (`entry_range` = zona, SL, `tp_levels`, `magic_base`, `signal_id` `SZ-<setup>`)
+  **solo** nei `signals_path` delle `mt5_instances` elencate; gli altri terminali non ricevono nulla.
+  L'EA (2.36) apre con `InpLotSertorio` per gamba, commenti `SZ-Tn-...`; il preset deve avere `sertorio` in
+  `InpChannels`. Il libro virtuale continua in parallelo (confronto reale vs virtuale in webapp/journal).
+  Il bridge non emette mai ordini Sertorio: l'unico scrittore è il monitor.
 
 Replay storico: `python tools/sertorio_replay.py --analyses <json interpretate> --m1 <xau_m1.csv>`.
 Avvio monitor su GH: `python tools/sertorio_shadow.py --config C:\TG_TradinGo\tradingo_config.json --terminal "<terminal64.exe Vantage>"`.
