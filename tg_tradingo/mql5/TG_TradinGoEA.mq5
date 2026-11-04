@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.35"
+#property version   "2.36"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.35"
+#define EA_VERSION "2.36"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -36,6 +36,7 @@ input double InpLotForex           = 0.0;
 input double InpLotHybridGold      = 0.0;   // v2.31 CH_HYBRIDGOLD (Hybrid | Setup Gold)
 input double InpLotHybridFx        = 0.0;   // v2.31 CH_HYBRIDFX (Hybrid | Setup Forex)
 input double InpLotIvanBtc         = 0.0;   // v2.34 CH_IVANBTC
+input double InpLotSertorio        = 0.0;   // v2.36 CH_SERTORIO (zone al tocco)
 // v2.34: true -> gli override InpLot* sono la size TOTALE del segnale, divisa
 // sui TP e arrotondata per difetto allo step (0.40 con 4 TP -> 0.10 a TP).
 // false -> override = lotto per ogni TP (comportamento storico).
@@ -48,6 +49,7 @@ input string InpTagOro             = "";
 input string InpTagForex           = "";
 input string InpTagHybridGold      = "HG";
 input string InpTagHybridFx        = "HF";
+input string InpTagSertorio        = "SZ";   // v2.36
 input bool   InpCommentUseTgPrefix = false; // false -> IT-T1 ; true -> TG-IT-T1
 input int    InpMaxSlippagePoints  = 50;
 input int    InpPollMs             = 500;
@@ -162,6 +164,7 @@ input double InpDdFloatOro           = 12.4;
 input double InpDdFloatForex         = 20.0;
 input double InpDdFloatHybridGold    = 15.0;
 input double InpDdFloatHybridFx      = 20.0;
+input double InpDdFloatSertorio      = 15.0;
 // Concurrent exposure cap across all TG positions. 0 = off.
 input double InpMaxConcurrentLots    = 0.0;
 // v2.30 daily drawdown guard (prop rules, e.g. Agora 4%). Reference = max(balance,
@@ -1058,6 +1061,8 @@ string ChannelShortTag(const string channelFile, const string json)
       return InpTagHybridGold;
    if(key == "hybridfx" && InpTagHybridFx != "")
       return InpTagHybridFx;
+   if(key == "sertorio" && InpTagSertorio != "")
+      return InpTagSertorio;
 
    string cid = JsonGetString(json, "channel_id");
    if(cid != "")
@@ -1092,6 +1097,8 @@ double LotOverrideForChannel(const string channelFile, const string json)
       return InpLotHybridFx;
    if(key == "ivanbtc")
       return InpLotIvanBtc;
+   if(key == "sertorio")
+      return InpLotSertorio;
    return 0.0;
   }
 // Override lot with the bridge's size reduction ("piccole size" -> lot_factor
@@ -2641,6 +2648,8 @@ bool IsTGPositionSelected()
       return true;
    if(CommentStartsWithTag(c, InpTagHybridFx))
       return true;
+   if(CommentStartsWithTag(c, InpTagSertorio))
+      return true;
    return false;
   }
 
@@ -3151,6 +3160,8 @@ double DdFloatPer001(const string channelKey)
       return InpDdFloatHybridGold;
    if(channelKey == "hybridfx")
       return InpDdFloatHybridFx;
+   if(channelKey == "sertorio")
+      return InpDdFloatSertorio;
    return 0.0;
   }
 
@@ -4071,6 +4082,7 @@ int OnInit()
          " hybridgold=", DoubleToString(InpLotHybridGold, 2),
          " hybridfx=", DoubleToString(InpLotHybridFx, 2),
          " ivanbtc=", DoubleToString(InpLotIvanBtc, 2),
+         " sertorio=", DoubleToString(InpLotSertorio, 2), "/", InpTagSertorio,
          " lot_per_signal=", InpLotPerSignal,
          " comment_tg_prefix=", InpCommentUseTgPrefix);
    Print("[TradinGo] v", EA_VERSION, " hardening | killswitch currency=ACCOUNT_CURRENCY (",

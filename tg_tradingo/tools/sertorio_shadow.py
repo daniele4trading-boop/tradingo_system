@@ -26,6 +26,9 @@ from sertorio_zones import (
     Setup,
     SetupConfig,
     ShadowBook,
+    build_open_signal,
+    live_signal_paths,
+    write_live_signal,
 )
 
 log = logging.getLogger("tradingo.sertorio.shadow")
@@ -84,7 +87,16 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
                         handlers=[logging.StreamHandler(),
                                   logging.FileHandler(logs / "sertorio_shadow.log", encoding="utf-8")])
-    book = ShadowBook(scfg, state_dir / SHADOW_STATE_FILE, base / "journal" / SHADOW_CSV_FILE)
+    live_paths = [] if scfg.shadow else live_signal_paths(cfg, scfg)
+    on_fill = None
+    if live_paths:
+        def on_fill(setup: dict, fill: float, ts: datetime) -> None:
+            sig = build_open_signal(setup, fill, ch, scfg, ts)
+            write_live_signal(live_paths, ch.get("signal_file", "signal_ch_sertorio.json"), sig)
+        log.warning(f"LIVE: ordini reali al tocco verso {[str(x) for x in live_paths]} (lotto da preset EA)")
+    elif not scfg.shadow:
+        log.error("shadow=false ma nessuna mt5_instances corrisponde a setups.live_instances: resto in shadow")
+    book = ShadowBook(scfg, state_dir / SHADOW_STATE_FILE, base / "journal" / SHADOW_CSV_FILE, on_fill=on_fill)
     feed = Mt5Feed(args.terminal, args.symbol)
     zones_path = state_dir / ZONES_FILE
     seen = (load_doc(state_dir / SHADOW_STATE_FILE) or {}).get("analysis_id")

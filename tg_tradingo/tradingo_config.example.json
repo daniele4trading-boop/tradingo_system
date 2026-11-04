@@ -186,12 +186,14 @@
       },
       "setups": {
         "shadow": true,
+        "live_instances": ["Vantage"],
+        "live_lot": 0.01,
         "use_ideas": true,
         "derive_from_zones": false,
         "sl_buffer": 5.0,
         "max_tps": 3,
         "expire_utc_hour": 21,
-        "notes": "Setup a tocco dalle idee LONG/SHORT dell'analisi. shadow=true: nessun ordine, esiti in state/sertorio_shadow.json via tools/sertorio_shadow.py."
+        "notes": "Setup a tocco dalle idee LONG/SHORT dell'analisi. shadow=true: nessun ordine. shadow=false: tools/sertorio_shadow.py scrive OPEN solo nei signals_path delle mt5_instances in live_instances (lotto dal preset InpLotSertorio); il libro virtuale continua in parallelo."
       },
       "execution": {
         "notes": "Livelli per TG_TradinGoLevels + zone/setup shadow. Nessun segnale reale finché setups.shadow=true."

@@ -17,12 +17,14 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
 | Bridge Python | **2.34** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.35** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| EA MT5 | **2.36** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**MT5 2.36 (Sertorio live su Vantage):** canale `sertorio` (`signal_ch_sertorio.json`, tag `SZ`, `InpLotSertorio`, `InpDdFloatSertorio`). I segnali li scrive `tools/sertorio_shadow.py` al tocco delle zone (`setups.shadow=false`, `live_instances=["Vantage"]`), non il bridge. Preset Vantage: `InpChannels` + `sertorio`, `InpLotSertorio=0.01`.
 
 **2.34 / MT5 2.35 (Hybrid):** (a) bridge: un OPEN Hybrid scartato dalla validazione (EURGBP 27/10: entry `0.73675` per refuso, TP incoerenti) viene dimenticato (`hybrid_forget_signal`), così l'EDIT correttivo del canale non è più "segnale già aperto" ma diventa `UPDATE_OPEN` e apre a mercato (con guard drift). (b) EA: `UPDATE_OPEN` annullato dal guard drift (`UPDATE_OPEN_CANCELLED`, >`InpUpdateOpenMaxDriftPctOfSl` della distanza SL) resta pendente per `InpRangeRetrySec` (300) e apre appena il prezzo rientra entro il drift massimo; scartato se tocca SL/TP1, scade o arriva un nuovo segnale sul canale (21/10 BUY 4130 e 27/10 BUY 4025: annullati a 46-48%, poi TP1/TP2). Preset Xlence e Ultima: `InpChannels` + `hybridgold,hybridfx`, `InpLotHybridGold/Fx=0.02` per gamba. Riportati in repo gli input della 2.34 che girava su Gamehosting dal 23/10 ma non erano mai arrivati su main: `InpLotIvanBtc`, `InpLotPerSignal` (lotto del preset = per segnale, diviso sulle gambe: Vantage 0.40 → 0.20 ×2 Hybrid), `lot_factor` dal JSON (`ChannelLotOverride`).
 
