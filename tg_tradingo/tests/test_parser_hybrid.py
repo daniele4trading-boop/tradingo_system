@@ -87,3 +87,33 @@ def test_rejected_open_forgotten_so_corrective_edit_opens():
     assert s["action"] == "OPEN" and s["entry"] == 0.83675
     assert tb.coerce_edit_open_to_update(s, True)["action"] == "UPDATE_OPEN"
     assert _p("Stoploss preso", FX, reply_to=3300)["action"] == "CHECK_AND_CLOSE"
+
+
+def test_tp3_open_adds_runner_leg_with_same_sl():
+    s = _p("▲ Buy xauusd.pro 3892\nSl: 3882\nTp1: 3902\nTp2: 3912\nTp3: open", msg_id=7101)
+    assert (s["tp_levels"], s["runner_legs"], s["sl"]) == ([3902, 3912], 1, 3882)
+    import bridge_core
+    ch = {**GOLD, "execution": {"fixed_lot_single": 0.01, "fixed_lot_per_tp": 0.01}}
+    bridge_core.apply_lot_rules(s, ch)
+    assert (s["trades"], s["fixed_lot"]) == (3, 0.01)
+    s = _p("▼ Sell xauusd.pro 4042\nSl: 4058\nTp1: 4037\nTp2: 4030\nTp3: 4022", msg_id=7102)
+    assert (s["tp_levels"], s["runner_legs"]) == ([4037, 4030, 4022], 0)
+    bridge_core.apply_lot_rules(s, ch)
+    assert s["trades"] == 3
+
+
+def test_edit_of_open_signal_updates_sl_and_tp():
+    # 4/11: SL corretto da 4058 a 4052 modificando il messaggio del segnale
+    t = "Low Risk\n\n▼ Sell xauusd.pro 4042\n\nSl: {sl}\n\nTp1: 4037\nTp2: {tp2}\nTp3: 4022"
+    assert _p(t.format(sl=4058, tp2=4030), msg_id=7201)["action"] == "OPEN"
+    s = _p(t.format(sl=4052, tp2=4030), msg_id=7201, is_edit=True)
+    assert (s["action"], s["levels_only"], s["sl"], s["tp_levels"]) == ("UPDATE_OPEN", True, 4052, [4037, 4030, 4022])
+    assert _p(t.format(sl=4052, tp2=4030), msg_id=7201, is_edit=True) is None
+    s = _p(t.format(sl=4052, tp2=4028), msg_id=7201, is_edit=True)
+    assert (s["action"], s["tp_levels"]) == ("UPDATE_OPEN", [4037, 4028, 4022])
+    assert tb.coerce_edit_open_to_update(s, True)["levels_only"] is True
+
+
+def test_edit_changing_direction_of_open_signal_ignored():
+    assert _p("▲ Buy xauusd.pro 3929\nSl: 3919\nTp1: 3939", msg_id=7301)["action"] == "OPEN"
+    assert _p("▼ Sell xauusd.pro 3928\nSl: 3938\nTp1: 3918", msg_id=7301, is_edit=True) is None

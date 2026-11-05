@@ -1320,10 +1320,12 @@ def apply_lot_rules(signal: dict, ch: dict) -> dict:
             signal["splits"] = [1.0]
         return signal
 
-    if n_tp >= 2:
-        signal["trades"] = n_tp
+    # Gambe runner senza TP (Hybrid "Tp3: open"): l'EA le apre come slot oltre i TP.
+    n_legs = n_tp + int(signal.get("runner_legs") or 0) if n_tp else 0
+    if n_legs >= 2:
+        signal["trades"] = n_legs
         signal["fixed_lot"] = lot_per_tp * lot_factor
-        signal["splits"] = [round(1.0 / n_tp, 4)] * n_tp
+        signal["splits"] = [round(1.0 / n_legs, 4)] * n_legs
     else:
         signal["trades"] = 1
         signal["fixed_lot"] = lot_single * lot_factor

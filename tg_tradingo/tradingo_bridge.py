@@ -76,7 +76,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.34"
+BRIDGE_VERSION = "2.37"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -3098,7 +3098,8 @@ def parser_ivan_btc(text: str, ch: dict, state: BridgeState | None = None) -> di
 #   "🟢BUY CHFJPY 190.128 / TP1 190.760 / TP2 191.420 / TP3 open / SL 189.500 (63 pips)"
 # Gestione = reply al segnale: "Noi anticipiamo il tp 1 qui", "Stop loss preso",
 # "Noi chiudiamo ora la posizione a 2.3R", "Break even preso". "Tp N preso" è solo
-# informativo (BE automatico nell'EA). Analisi e aggiornamenti: nessun segnale.
+# informativo (BE automatico nell'EA dopo la chiusura in profitto della gamba T1).
+# "Tp3: open" apre una gamba runner senza TP; l'EDIT del segnale aggiorna SL/TP. Analisi e aggiornamenti: nessun segnale.
 _HYBRID_OPEN_RE = re.compile(
     r"\b(BUY|SELL)\s+([A-Z]{6})(?:\.[A-Z]+)?\s+(\d+(?:[.,]\d+)?)\b")
 _HYBRID_PENDING_RE = re.compile(r"\b(?:BUY|SELL)\s+(?:LIMIT|STOP)\b")
@@ -3127,6 +3128,35 @@ def _hybrid_target(ch: dict, reply_to: int | None) -> dict | None:
     return _HYBRID_LAST.get(ch["id"])
 
 
+def _hybrid_edit_levels(ch: dict, trade: dict, direction: str, symbol: str,
+                        sl: float, tps: list[float], raw: str) -> dict | None:
+    """EDIT del messaggio di un segnale già aperto (4/11: SL 4058 -> 4052): solo
+    SL/TP nuovi alle posizioni aperte, mai una nuova apertura."""
+    tag = ch.get("id", "HYBRID")
+    if (direction, symbol) != (trade["direction"], trade["symbol"]):
+        log.warning(f"[{tag}] EDIT cambia {trade['direction']} {trade['symbol']} -> "
+                    f"{direction} {symbol} su un segnale già aperto, ignorato: {raw[:60]}")
+        return None
+    if sl == trade.get("sl") and tps == trade.get("tp_levels"):
+        log.info(f"[{tag}] EDIT senza cambi di SL/TP, ignorato: {raw[:60]}")
+        return None
+    log.info(f"[{tag}] EDIT livelli {symbol}: SL {trade.get('sl')} -> {sl}, "
+             f"TP {trade.get('tp_levels')} -> {tps}")
+    trade["sl"], trade["tp_levels"] = sl, tps
+    return {
+        "action":       "UPDATE_OPEN",
+        "levels_only":  True,
+        "direction":    direction,
+        "symbol":       symbol,
+        "entry":        trade["entry"],
+        "tp_levels":    tps,
+        "runner_legs":  trade.get("runner_legs", 0),
+        "sl":           sl,
+        "magic_base":   ch["magic_base"],
+        "raw_message":  raw,
+    }
+
+
 def parser_hybrid(text: str, ch: dict, state: BridgeState | None = None,
                   reply_to: int | None = None, msg_id: int | None = None,
                   is_edit: bool = False) -> dict | None:
@@ -3139,31 +3169,37 @@ def parser_hybrid(text: str, ch: dict, state: BridgeState | None = None,
         if _HYBRID_PENDING_RE.search(upper):
             log.warning(f"[{tag}] Ordine pendente non supportato: {raw[:60]}")
             return None
-        if is_edit and msg_id is not None and (tag, int(msg_id)) in _HYBRID_TRADES:
-            log.info(f"[{tag}] EDIT di un segnale già aperto, ignorato: {raw[:60]}")
-            return None
         direction = m_open.group(1)
         symbol = normalize_symbol(m_open.group(2))
         entry = pf(m_open.group(3))
         sl = pf(_HYBRID_SL_RE.search(upper).group(1))
-        tps = [pf(v) for _, v in sorted(_HYBRID_TP_RE.findall(upper)) if v != "OPEN"]
+        tp_raw = sorted(_HYBRID_TP_RE.findall(upper))
+        tps = [pf(v) for _, v in tp_raw if v != "OPEN"]
         tps = [v for v in tps if v is not None]
+        # "Tp3: open": gamba runner senza TP (SL come le altre, BE dopo il TP1).
+        runner = 1 if tps and any(v == "OPEN" for _, v in tp_raw) else 0
         if entry is None or sl is None:
             return None
         if (direction == "BUY" and sl >= entry) or (direction == "SELL" and sl <= entry):
             log.warning(f"[{tag}] SL dal lato sbagliato, nessun segnale: {raw[:60]}")
             return None
-        trade = {"symbol": symbol, "direction": direction, "entry": entry}
+        known = _HYBRID_TRADES.get((tag, int(msg_id))) if is_edit and msg_id is not None else None
+        if known is not None:
+            return _hybrid_edit_levels(ch, known, direction, symbol, sl, tps, raw)
+        trade = {"symbol": symbol, "direction": direction, "entry": entry,
+                 "sl": sl, "tp_levels": tps, "runner_legs": runner}
         if msg_id is not None:
             _HYBRID_TRADES[(tag, int(msg_id))] = trade
         _HYBRID_LAST[tag] = trade
-        log.info(f"[{tag}] OPEN {direction} {symbol} @ {entry} TP={tps} SL={sl}")
+        log.info(f"[{tag}] OPEN {direction} {symbol} @ {entry} TP={tps}"
+                 f"{' +runner' if runner else ''} SL={sl}")
         return {
             "action":       "OPEN",
             "direction":    direction,
             "symbol":       symbol,
             "entry":        entry,
             "tp_levels":    tps,
+            "runner_legs":  runner,
             "sl":           sl,
             "magic_base":   ch["magic_base"],
             "raw_message":  raw,
@@ -3557,7 +3593,8 @@ async def run_bridge():
                         "payload": signal,
                         "targets": meta.get("written_targets") or [],
                     })
-                elif ch_cfg["parser"] == "hybrid" and signal.get("action") in ("OPEN", "UPDATE_OPEN"):
+                elif (ch_cfg["parser"] == "hybrid" and signal.get("action") in ("OPEN", "UPDATE_OPEN")
+                      and not signal.get("levels_only")):
                     hybrid_forget_signal(ch_cfg, message_id)
             else:
                 outcome = "IGNORED_PATTERN" if matched_ignore else "UNPARSED"
