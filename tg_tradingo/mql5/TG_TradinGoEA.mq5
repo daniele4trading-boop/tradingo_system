@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.36"
+#property version   "2.37"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.36"
+#define EA_VERSION "2.37"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -124,7 +124,10 @@ input double InpMaxSlWidenFactor = 2.0;
 // Seconds within which positions opened together count as one batch
 // (CLOSE_SELECTIVE keep=ALL_BUT_NEWEST closes only the newest batch).
 input int    InpBatchWindowSec      = 120;
+// T1 chiusa in profitto (TP preso o "anticipiamo il TP1") -> SL a BE sulle altre
+// gambe dello stesso segnale, con la regola di BeTargetForPosition.
 input bool   InpAutoBreakEvenOnTp1 = true;
+input string InpAutoBeTp1Tags      = "HG,HF"; // tag canali (commento) con BE automatico
 input ulong  InpMagicOffset        = 0;
 
 //--- v2.10 hardening / journal inputs
@@ -1765,11 +1768,35 @@ bool HandleOpen(const string channelFile, const string json)
                           JsonGetNumber(json, "entry"), sl))
       return true;
 
+   // Runner legs (Hybrid "Tp3: open"): slots beyond the TPs, same SL, no TP.
+   int nTp = ArraySize(tps);
+   if(nTp > 0 && trades > nTp)
+     {
+      int nLegs = MathMin(trades, 5);
+      ArrayResize(tps, nLegs);
+      for(int k = nTp; k < nLegs; k++)
+         tps[k] = 0.0;
+     }
+
    return OpenSplitTrades(symbol, direction, lot, sl, tps, magicBase,
                           channelFile, json, entryStatus, rangeLo, rangeHi, distPoints);
   }
 
 //+------------------------------------------------------------------+
+// True when the position's SL is already at/beyond its open price (BE or locked profit).
+bool SlProtectsEntry(const ulong ticket)
+  {
+   if(!PositionSelectByTicket(ticket))
+      return false;
+   double cur = PositionGetDouble(POSITION_SL);
+   if(cur <= 0.0)
+      return false;
+   double open = PositionGetDouble(POSITION_PRICE_OPEN);
+   double pt = SymbolInfoDouble(PositionGetString(POSITION_SYMBOL), SYMBOL_POINT);
+   bool buy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+   return buy ? (cur >= open - pt) : (cur <= open + pt);
+  }
+
 bool HandleUpdateOpen(const string channelFile, const string json)
   {
    string direction = JsonGetString(json, "direction");
@@ -1848,6 +1875,7 @@ bool HandleUpdateOpen(const string channelFile, const string json)
    if(n > 5)
       n = 5;
 
+   bool levelsOnly = JsonGetBool(json, "levels_only");
    bool any = false;
    for(int i = 1; i <= n; i++)
      {
@@ -1856,11 +1884,23 @@ bool HandleUpdateOpen(const string channelFile, const string json)
       double tp = (i - 1 < ArraySize(tps)) ? tps[i - 1] : 0.0;
       if(ticket > 0)
         {
-         if(ModifyPositionSLTP(ticket, sl, tp))
+         double useSl = sl;
+         // Edited signal levels never undo a stop already at BE or in profit.
+         if(levelsOnly && SlProtectsEntry(ticket))
+            useSl = 0.0;
+         if(ModifyPositionSLTP(ticket, useSl, tp))
+           {
             any = true;
+            if(levelsOnly)
+               Print("[TradinGo] UPDATE_OPEN levels_only ticket=", ticket, " slot=", i,
+                     " sl=", (useSl > 0.0 ? DoubleToString(useSl, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) : "kept"),
+                     " tp=", (tp > 0.0 ? DoubleToString(tp, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) : "kept"));
+           }
         }
       else
         {
+         if(levelsOnly)
+            continue;
          if(IsOpenBlocked(symbol))
             continue;
          if(SlotClosedForSignal(symbol, magic, JsonGetString(json, "signal_id")))
@@ -1899,6 +1939,8 @@ bool HandleUpdateOpen(const string channelFile, const string json)
       if(planned)
          continue;
       // Re-entry / extra: apply SL only, keep existing TP (tp=0 → curTp).
+      if(levelsOnly && SlProtectsEntry(g_pos.Ticket()))
+         continue;
       ModifyPositionSLTP(g_pos.Ticket(), sl, 0);
      }
    return true;
@@ -3684,12 +3726,79 @@ void WriteJournalClose(const int i)
   }
 
 //+------------------------------------------------------------------+
+double ClosedPositionProfit(const ulong posId)
+  {
+   double realized = 0.0;
+   if(!HistorySelectByPosition(posId))
+      return 0.0;
+   for(int d = HistoryDealsTotal() - 1; d >= 0; d--)
+     {
+      ulong dl = HistoryDealGetTicket(d);
+      if(dl == 0)
+         continue;
+      long entry = HistoryDealGetInteger(dl, DEAL_ENTRY);
+      if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT)
+         realized += HistoryDealGetDouble(dl, DEAL_PROFIT);
+     }
+   return realized;
+  }
+
+bool AutoBeTagEnabled(const string tag)
+  {
+   if(tag == "")
+      return false;
+   string parts[];
+   int n = StringSplit(InpAutoBeTp1Tags, ',', parts);
+   for(int k = 0; k < n; k++)
+     {
+      string p = Trim(parts[k]);
+      StringToUpper(p);
+      string t = tag;
+      StringToUpper(t);
+      if(p != "" && p == t)
+         return true;
+     }
+   return false;
+  }
+
+// T1 of a tracked signal closed in profit: move the remaining legs (same
+// symbol, same magic base) to break-even.
+void AutoBreakEvenAfterTp1(const int i)
+  {
+   if(!InpAutoBreakEvenOnTp1 || g_trkTpIndex[i] != 1 || !AutoBeTagEnabled(g_trkChannel[i]))
+      return;
+   double profit = ClosedPositionProfit(g_trkTicket[i]);
+   if(profit <= 0.0)
+      return;
+   long magicBase = (long)g_trkMagic[i] - 1 - (long)InpMagicOffset;
+   string symbol = g_trkSymbol[i];
+   int done = 0;
+   for(int k = ArraySize(g_trkTicket) - 1; k >= 0; k--)
+     {
+      if(k == i || g_trkSymbol[k] != symbol || g_trkTpIndex[k] <= 1)
+         continue;
+      if((long)g_trkMagic[k] != (long)TradeMagic((int)magicBase, g_trkTpIndex[k]))
+         continue;
+      if(g_trkSignalId[i] != "" && g_trkSignalId[k] != "" && g_trkSignalId[k] != g_trkSignalId[i])
+         continue;
+      if(!PositionSelectByTicket(g_trkTicket[k]))
+         continue;
+      double entry = (g_trkReqEntry[k] > 0.0) ? g_trkReqEntry[k] : g_trkReqEntry[i];
+      ApplyBreakEvenSLSignal(g_trkTicket[k], entry);
+      done++;
+     }
+   Print("[TradinGo] AUTO_BE_TP1 ", g_trkChannel[i], " ", symbol, " sid=", g_trkSignalId[i],
+         " T1 ticket=", g_trkTicket[i], " profit=", DoubleToString(profit, 2),
+         " -> BE on ", done, " leg(s)");
+  }
+
 void DetectClosedPositions()
   {
    for(int i = ArraySize(g_trkTicket) - 1; i >= 0; i--)
      {
       if(PositionSelectByTicket(g_trkTicket[i]))
          continue; // still open
+      AutoBreakEvenAfterTp1(i);
       WriteJournalClose(i);
       TrackRemoveAt(i);
      }
