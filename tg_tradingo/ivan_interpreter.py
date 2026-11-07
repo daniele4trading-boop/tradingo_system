@@ -47,7 +47,10 @@ ACTIONS = (
 SCOPES = ("WORST", "BEST", "HIGHEST", "LOWEST")
 KEEPS = ("BEST", "HIGHEST", "LOWEST", "ALL_BUT_NEWEST")
 
-_URGENT_RE = re.compile(r"\b(ORA|SUBITO|ADESSO|IMMEDIATAMENTE|NOW)\b")
+_URGENT_RE = re.compile(
+    r"\b(ORA|SUBITO|ADESSO|IMMEDIATAMENTE|NOW|USCIAMO|USCITE)\b"
+    r"|\bCHIUD\w*\s+(?:TUTTO|TUTTE|ORA)\b"
+)
 
 SYSTEM_PROMPT = """Sei l'interprete dei messaggi di un canale Telegram di segnali sull'oro (XAUUSD).
 Il trader (Ivan) pubblica un setup con 4 take profit (TP1..TP4) e poi, in italiano colloquiale e spesso
@@ -93,6 +96,13 @@ class InterpreterConfig:
     context_messages: int = DEFAULT_CONTEXT_MESSAGES
     timeout_sec: float = DEFAULT_TIMEOUT_SEC
     max_tokens: int = 300
+    # Nomi mt5_instances dove l'interprete è operativo (shadow=false): lì decide
+    # la gestione e gli altri conti restano col parser. Vuoto = tutte le istanze.
+    live_instances: list = field(default_factory=list)
+    # Size prudenziale: il setup apre la size media; se entro size_window_sec
+    # Ivan non dà indicazioni di size, un secondo ordine porta la size a piena.
+    size_upgrade: bool = False
+    size_window_sec: float = 30.0
 
     @classmethod
     def from_channel(cls, ch: dict) -> InterpreterConfig:
@@ -331,6 +341,9 @@ class IvanMessageBuffer:
     def context(self, now: float) -> list[str]:
         return [t for ts, _, t in self._history if now - ts <= self.window_sec]
 
+    def messages_since(self, ts: float) -> list[str]:
+        return [t for h_ts, _, t in self._history if h_ts >= ts]
+
     def take_pending(self, now: float) -> tuple[list[str], list[int]]:
         if self.flat:
             self._pending_ids.clear()
@@ -365,3 +378,106 @@ def describe_signal(sig: dict) -> str:
         if sig.get(k) is not None:
             parts.append(f"{k}={sig[k]}")
     return " ".join(parts)
+
+
+SIZE_LABELS = ("NONE", "KEEP", "FULL")
+
+SIZE_PROMPT = """Sei l'interprete dei messaggi di un canale Telegram di segnali sull'oro (XAUUSD).
+Il trader (Ivan) ha appena pubblicato il SETUP indicato. Noi entriamo subito con una size MEDIA
+prudenziale e, se Ivan non dà indicazioni sulla size o sul rischio, raddoppiamo fino alla size piena.
+Leggi i messaggi arrivati DOPO il setup e classifica:
+- KEEP: qualunque indicazione di size non piena o di rischio: "size medie", "size medio basse",
+  "piccole size", "metà size", "size ridotte", "trade rischioso", "attenzione", "occhio alle news",
+  "entrate leggere", dubbi sul trade, oppure ordini di chiusura/BE/attesa.
+- FULL: indicazione esplicita di size piena ("size piene", "size normali", "carichiamo", "full size").
+- NONE: nessuna indicazione su size o rischio (es. solo "entrate", emoji, countdown, chiacchiere,
+  oppure nessun messaggio).
+Rispondi SOLO con JSON: {"size": "NONE"|"KEEP"|"FULL", "confidence": 0.0-1.0, "reason": "breve"}."""
+
+_SIZE_HINT_RE = re.compile(
+    r"SIZE|SAZIE|RISCHI|PICCOL|LEGGER|RIDOTT|META\b|MEZZA|ATTENZIONE|OCCHIO|PRUDEN|CAUT"
+)
+
+
+def size_hint_regex(messages: list[str]) -> str:
+    """Fallback senza LLM: una qualsiasi parola di size/rischio tiene la size media."""
+    folded = " ".join(
+        "".join(c for c in m.upper().replace("À", "A").replace("È", "E")) for m in messages
+    )
+    if _SIZE_HINT_RE.search(folded):
+        return "KEEP"
+    return "NONE"
+
+
+@dataclass
+class SizeDecision:
+    size: str = "KEEP"
+    confidence: float = 0.0
+    reason: str = ""
+    source: str = "llm"
+
+
+def build_size_prompt(setup: dict, messages: list[str]) -> str:
+    tps = setup.get("tp_levels") or []
+    rng = setup.get("entry_range")
+    entry_txt = f"{rng[0]}-{rng[1]}" if rng else str(setup.get("entry"))
+    lines = [
+        (f"SETUP: {setup.get('direction')} {setup.get('symbol')} entry {entry_txt} "
+         f"SL {setup.get('sl')} TP {tps}"),
+        f"TESTO DEL SETUP: {(setup.get('raw_message') or '').strip()[:400]}",
+        "MESSAGGI DOPO IL SETUP (dal più vecchio):",
+    ]
+    if messages:
+        lines += [f"[{i}] {m.strip()}" for i, m in enumerate(messages, 1)]
+    else:
+        lines.append("(nessuno)")
+    return "\n".join(lines)
+
+
+def classify_size(
+    cfg: InterpreterConfig, setup: dict, messages: list[str],
+    completer: Completer | None = None,
+) -> SizeDecision:
+    """KEEP (resta la size media), FULL o NONE (si porta a size piena).
+
+    Errore o confidenza bassa: decide la regex; nel dubbio KEEP (più prudente).
+    """
+    complete = completer or anthropic_complete
+    msgs = [m for m in messages if m and m.strip()]
+    try:
+        data = _extract_json(complete(SIZE_PROMPT, build_size_prompt(setup, msgs), cfg))
+        size = str(data.get("size") or "").upper()
+        conf = max(0.0, min(1.0, float(data.get("confidence") or 0.0)))
+        reason = str(data.get("reason") or "")
+        if size not in SIZE_LABELS:
+            raise ValueError(f"size {size!r}")
+    except Exception as e:  # noqa: BLE001 - mai bloccare il bridge
+        log.warning(f"[IVAN_LLM SIZE] errore interprete: {e}: uso la regex")
+        return SizeDecision(size_hint_regex(msgs), 0.0, f"errore: {e}", "regex")
+    if conf < cfg.min_confidence:
+        return SizeDecision("KEEP",
+                            conf, f"low_conf:{size} {reason}", "low_conf")
+    return SizeDecision(size, conf, reason, "llm")
+
+
+def build_size_add_signal(setup: dict, ch: dict) -> dict:
+    """Secondo ordine che porta il setup da size media a piena: stessi SL/TP,
+    aperto solo con prezzo nel range del segnale o migliore (EA: entry_or_better)."""
+    sig = {
+        "action": "OPEN",
+        "direction": setup["direction"],
+        "symbol": setup.get("symbol") or "XAUUSD",
+        "tp_levels": list(setup.get("tp_levels") or []),
+        "sl": setup.get("sl"),
+        "allow_stack": True,
+        "entry_or_better": True,
+        "magic_base": ch["magic_base"],
+        "raw_message": setup.get("raw_message"),
+        "source": "llm_size",
+    }
+    rng = setup.get("entry_range")
+    if rng:
+        sig["entry_range"] = [float(rng[0]), float(rng[1])]
+    else:
+        sig["entry"] = setup.get("entry")
+    return sig

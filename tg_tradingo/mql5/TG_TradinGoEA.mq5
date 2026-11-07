@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.37"
+#property version   "2.39"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.38"
+#define EA_VERSION "2.39"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -1675,6 +1675,53 @@ double NakedFallbackSl(const string symbol, const string direction)
   }
 
 //+------------------------------------------------------------------+
+// v2.39 size add-on (interprete Ivan): si aggiunge al setup già aperto solo se
+// il prezzo è nel range del segnale o migliore (BUY ask <= max, SELL bid >= min;
+// entry singola = quel prezzo). Fuori range non si apre niente, nessun retry.
+bool EntryOrBetterAllows(const string channelFile, const string json,
+                         const string symbol, const string direction,
+                         const int magicBase, const double lo, const double hi)
+  {
+   string ch = JsonGetString(json, "channel_id");
+   if(CountOurPositions(symbol, magicBase, 5) <= 0)
+     {
+      Print("[TradinGo] SIZE_ADD_SKIPPED ", ch, " ", symbol, " — setup non più aperto");
+      return false;
+     }
+   double entry = JsonGetNumber(json, "entry");
+   double limit = (direction == "BUY") ? ((hi > 0.0) ? hi : entry)
+                                       : ((lo > 0.0) ? lo : entry);
+   if(limit <= 0.0)
+     {
+      Print("[TradinGo] SIZE_ADD_SKIPPED ", ch, " ", symbol, " — entry assente");
+      return false;
+     }
+   g_sym.Name(symbol);
+   g_sym.RefreshRates();
+   double price = (direction == "BUY") ? g_sym.Ask() : g_sym.Bid();
+   int digits = (int)g_sym.Digits();
+   bool ok = (direction == "BUY") ? (price <= limit) : (price >= limit);
+   if(!ok)
+     {
+      double point = g_sym.Point();
+      if(point <= 0.0)
+         point = _Point;
+      double dist = MathAbs(price - limit) / point;
+      Print("[TradinGo] SIZE_ADD_SKIPPED ", ch, " ", symbol, " ", direction,
+            " price=", DoubleToString(price, digits),
+            " limit=", DoubleToString(limit, digits),
+            " — prezzo fuori range, niente add-on");
+      AppendSignalStat(channelFile, json, symbol, direction, "CANCELLED_SIZE_ADD",
+                       lo, hi, limit, price, dist, 0, 0);
+      return false;
+     }
+   Print("[TradinGo] SIZE_ADD_OK ", ch, " ", symbol, " ", direction,
+         " price=", DoubleToString(price, digits),
+         " limit=", DoubleToString(limit, digits));
+   return true;
+  }
+
+//+------------------------------------------------------------------+
 bool HandleOpen(const string channelFile, const string json)
   {
    string action = JsonGetString(json, "action");
@@ -1734,9 +1781,14 @@ bool HandleOpen(const string channelFile, const string json)
       rangeHi = MathMax(entryRange[0], entryRange[1]);
      }
 
-   string entryStatus = "EXECUTED_DIRECT";
+   bool orBetter = JsonGetBool(json, "entry_or_better");
+   if(orBetter && !EntryOrBetterAllows(channelFile, json, symbol, direction, magicBase,
+                                       rangeLo, rangeHi))
+      return true;
+
+   string entryStatus = orBetter ? "EXECUTED_SIZE_ADD" : "EXECUTED_DIRECT";
    double distPoints = 0.0;
-   if(rangeHi > rangeLo)
+   if(rangeHi > rangeLo && !orBetter)
      {
       if(!TryExecuteWithEntryRange(channelFile, json, symbol, direction, rangeLo, rangeHi,
                                    entryStatus, distPoints))
