@@ -9,7 +9,7 @@
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.37"
+#define EA_VERSION "2.38"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -41,6 +41,7 @@ input double InpLotSertorio        = 0.0;   // v2.36 CH_SERTORIO (zone al tocco)
 // sui TP e arrotondata per difetto allo step (0.40 con 4 TP -> 0.10 a TP).
 // false -> override = lotto per ogni TP (comportamento storico).
 input bool   InpLotPerSignal       = false;
+input int    InpMaxLegsIvan        = 0;     // v2.38 max gambe per setup Ivan (0 = tutte, 3 = TP1..TP3)
 // Short comment tags (empty = default CHANNEL name). Moneta: IT / AS
 input string InpTagIvan            = "IT";
 input string InpTagStark           = "AS";
@@ -1047,6 +1048,19 @@ string ChannelKeyFromFile(const string channelFile, const string json)
   }
 
 //+------------------------------------------------------------------+
+// Leg cap per channel (Agorà: Ivan TP1..TP3 only, TP4 never opened).
+void CapChannelLegs(const string channelFile, const string json, double &tps[], int &trades)
+  {
+   int cap = (ChannelKeyFromFile(channelFile, json) == "ivan") ? InpMaxLegsIvan : 0;
+   if(cap <= 0)
+      return;
+   if(ArraySize(tps) > cap)
+      ArrayResize(tps, cap);
+   if(trades > cap)
+      trades = cap;
+  }
+
+//+------------------------------------------------------------------+
 string ChannelShortTag(const string channelFile, const string json)
   {
    string key = ChannelKeyFromFile(channelFile, json);
@@ -1676,6 +1690,7 @@ bool HandleOpen(const string channelFile, const string json)
    int trades = JsonGetInt(json, "trades");
    if(trades <= 0)
       trades = MathMax(1, ArraySize(tps));
+   CapChannelLegs(channelFile, json, tps, trades);
    double fixedLot = JsonGetNumber(json, "fixed_lot");
    if(fixedLot <= 0)
       fixedLot = 0.20;
@@ -1808,6 +1823,7 @@ bool HandleUpdateOpen(const string channelFile, const string json)
    int trades = JsonGetInt(json, "trades");
    if(trades <= 0)
       trades = MathMax(1, ArraySize(tps));
+   CapChannelLegs(channelFile, json, tps, trades);
    double fixedLot = JsonGetNumber(json, "fixed_lot");
    if(fixedLot <= 0)
       fixedLot = 0.10;
@@ -4192,7 +4208,7 @@ int OnInit()
          " hybridfx=", DoubleToString(InpLotHybridFx, 2),
          " ivanbtc=", DoubleToString(InpLotIvanBtc, 2),
          " sertorio=", DoubleToString(InpLotSertorio, 2), "/", InpTagSertorio,
-         " lot_per_signal=", InpLotPerSignal,
+         " lot_per_signal=", InpLotPerSignal, " ivan_max_legs=", InpMaxLegsIvan,
          " comment_tg_prefix=", InpCommentUseTgPrefix);
    Print("[TradinGo] v", EA_VERSION, " hardening | killswitch currency=ACCOUNT_CURRENCY (",
          AccountInfoString(ACCOUNT_CURRENCY), ")",
