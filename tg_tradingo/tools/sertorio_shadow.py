@@ -10,6 +10,7 @@ Processo separato dal bridge: non usa Telegram.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import sys
@@ -35,20 +36,49 @@ log = logging.getLogger("tradingo.sertorio.shadow")
 
 
 class Mt5Feed:
-    def __init__(self, terminal: str | None, symbol: str):
+    """Tick dal terminale MT5. Se il terminale viene riavviato il modulo MetaTrader5 resta
+    collegato a un processo morto e risponde None senza errori: qui lo rileviamo e ci ricolleghiamo."""
+
+    def __init__(self, terminal: str | None, symbol: str, reconnect_after: int = 15):
         import MetaTrader5 as mt5  # type: ignore
         self.mt5 = mt5
+        self.terminal = terminal
         self.symbol = symbol
-        ok = mt5.initialize(path=terminal) if terminal else mt5.initialize()
+        self.reconnect_after = reconnect_after
+        self.misses = 0
+        self.last_tick_time = 0
+        self._connect(first=True)
+
+    def _connect(self, first: bool = False) -> None:
+        mt5 = self.mt5
+        if not first:
+            with contextlib.suppress(Exception):
+                mt5.shutdown()
+        ok = mt5.initialize(path=self.terminal) if self.terminal else mt5.initialize()
         if not ok:
             raise RuntimeError(f"MT5 initialize fallita: {mt5.last_error()}")
-        mt5.symbol_select(symbol, True)
-        log.info(f"MT5 connesso: {mt5.terminal_info().name} account={mt5.account_info().login} symbol={symbol}")
+        mt5.symbol_select(self.symbol, True)
+        info, acc = mt5.terminal_info(), mt5.account_info()
+        log.info(f"MT5 {'connesso' if first else 'RICONNESSO'}: {getattr(info, 'name', '?')} "
+                 f"account={getattr(acc, 'login', '?')} symbol={self.symbol}")
+        self.misses = 0
 
     def tick(self) -> tuple[datetime, float, float] | None:
         t = self.mt5.symbol_info_tick(self.symbol)
-        if not t or not t.bid:
+        alive = self.mt5.terminal_info() is not None
+        if not alive or not t or not t.bid:
+            self.misses += 1
+            if not alive or self.misses >= self.reconnect_after:
+                log.error(f"MT5 non risponde (terminal_info={'ok' if alive else 'None'}, "
+                          f"tick mancanti={self.misses}): riconnessione")
+                try:
+                    self._connect()
+                except Exception as e:  # noqa: BLE001
+                    log.error(f"riconnessione MT5 fallita: {e}")
+                    self.misses = 0
             return None
+        self.misses = 0
+        self.last_tick_time = t.time
         return datetime.fromtimestamp(t.time, tz=timezone.utc), float(t.bid), float(t.ask)
 
 
