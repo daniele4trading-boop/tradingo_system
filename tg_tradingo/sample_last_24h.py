@@ -73,7 +73,7 @@ def channel_full_id(entity) -> int | None:
 def import_parsers():
     """Import parser functions from bridge (no Telegram client startup)."""
     sys.path.insert(0, os.path.dirname(__file__))
-    from bridge_core import EphemeralBridgeState
+    from bridge_core import EphemeralBridgeState, resolve_telegram_credentials
     from tradingo_bridge import (
         parser_sala_gold,
         parser_sala_stark,
@@ -122,7 +122,7 @@ def write_output(path: Path, lines: list[str]) -> None:
 
 async def run(args: argparse.Namespace) -> None:
     config = load_config()
-    tg = config["telegram"]
+    tg = resolve_telegram_credentials(config["telegram"])
     log_dir = Path(config["paths"]["logs"])
     log_dir.mkdir(parents=True, exist_ok=True)
     out_file = log_dir / f"signal_last_{args.hours}h.txt"

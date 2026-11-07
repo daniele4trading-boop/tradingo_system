@@ -22,6 +22,8 @@ from pathlib import Path
 from telethon import TelegramClient
 from telethon.tl.types import Channel, Chat
 
+from bridge_core import resolve_telegram_credentials
+
 CONFIG_FILE = os.environ.get(
     "TRADINGO_CONFIG",
     os.path.join(os.path.dirname(__file__), "tradingo_config.json"),
@@ -71,7 +73,7 @@ def channel_full_id(entity) -> int | None:
 
 async def run(args: argparse.Namespace) -> None:
     config = load_config()
-    tg = config["telegram"]
+    tg = resolve_telegram_credentials(config["telegram"])
     log_dir = Path(config["paths"]["logs"])
     log_dir.mkdir(parents=True, exist_ok=True)
     out_file = log_dir / "channel_resolve.txt"

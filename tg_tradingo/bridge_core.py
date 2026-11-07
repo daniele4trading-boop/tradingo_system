@@ -24,6 +24,45 @@ log = logging.getLogger("TradinGo")
 PLACEHOLDER_API_HASH = "INSERISCI_API_HASH_TELEGRAM"
 PRODUCTION_CONFIG = Path(r"C:\TG_TradinGo\tradingo_config.json")
 
+# Sentinel nel JSON: indica che il valore va letto dall'archivio segreti.
+_SECRETS_SENTINEL = "@secrets"
+
+
+def resolve_telegram_credentials(tg_cfg: dict) -> dict:
+    """Integra api_id/api_hash nel dict telegram del config.
+
+    Se il valore nel JSON è assente, è il segnaposto originale o è
+    la stringa "@secrets", viene letto dall'archivio secrets_store.
+    Se il valore è già presente in chiaro, viene usato così (con WARNING).
+    Restituisce un *nuovo* dict con i campi risolti.
+    """
+    try:
+        from secrets_store import store  # import locale (cwd = tg_tradingo)
+    except ImportError:
+        try:
+            from tg_tradingo.secrets_store import store
+        except ImportError:
+            log.warning("secrets_store non importabile: uso valori dal JSON")
+            return tg_cfg
+
+    cfg = dict(tg_cfg)
+    for field, key in (("api_id", "TELEGRAM_API_ID"), ("api_hash", "TELEGRAM_API_HASH")):
+        raw = cfg.get(field)
+        needs_secret = (
+            not raw
+            or str(raw).strip() in (_SECRETS_SENTINEL, PLACEHOLDER_API_HASH, "0", "")
+        )
+        if needs_secret:
+            cfg[field] = store.require(key)
+        else:
+            # Valore in chiaro nel JSON: avvisa ma usa comunque
+            log.warning(
+                "telegram.%s presente in chiaro nel JSON: spostarlo nell'archivio segreti "
+                "con: python -m tg_tradingo.secrets_store set %s",
+                field, key,
+            )
+    return cfg
+
 
 def resolve_config_path(explicit: str | os.PathLike | None = None) -> Path:
     """Return config path with real Telegram credentials when available."""
@@ -46,6 +85,9 @@ def resolve_config_path(explicit: str | os.PathLike | None = None) -> Path:
             tg = data.get("telegram", {})
             api_id = tg.get("api_id")
             api_hash = (tg.get("api_hash") or "").strip()
+            # Accetta anche il file con sentinel "@secrets" (le cred stanno nell'archivio)
+            if str(api_id).strip() == _SECRETS_SENTINEL or api_hash == _SECRETS_SENTINEL:
+                return True
             return bool(api_id) and bool(api_hash) and api_hash != PLACEHOLDER_API_HASH
         except Exception:
             return False

@@ -70,8 +70,23 @@ def _session_hours(cfg: dict) -> float:
     return float(cfg.get("session_hours", 180 * 24))
 
 
+def _resolve_secret_key() -> str:
+    try:
+        from secrets_store import store as _ss
+    except ImportError:
+        try:
+            from tg_tradingo.secrets_store import store as _ss  # type: ignore[no-redef]
+        except ImportError:
+            _ss = None  # type: ignore[assignment]
+    if _ss:
+        val = _ss.get("WEBAPP_SECRET_KEY")
+        if val:
+            return val
+    return CONFIG.get("secret_key", "")
+
+
 sessions = SessionManager(
-    CONFIG.get("secret_key", ""),
+    _resolve_secret_key(),
     hours=_session_hours(CONFIG),
 )
 limiter = RateLimiter(

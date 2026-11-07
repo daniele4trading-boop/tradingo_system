@@ -43,6 +43,7 @@ from bridge_core import (
     salvage_incoherent_entry_range,
     payload_for_ea,
     validate_signal,
+    resolve_telegram_credentials,
 )
 from bridge_journal import append_bridge_event, write_heartbeat
 import sertorio_zones
@@ -3325,7 +3326,8 @@ async def run_bridge():
         icfg = InterpreterConfig.from_channel(cfg)
         if not icfg.enabled:
             continue
-        if not os.environ.get(icfg.api_key_env):
+        from secrets_store import store as _ss
+        if not _ss.get(icfg.api_key_env):
             log.warning(
                 f"  {cfg['id']} interpreter abilitato ma {icfg.api_key_env} assente: disattivato"
             )
@@ -3408,6 +3410,7 @@ async def run_bridge():
             except Exception as exc:
                 log.error(f"Init skipped {f}: {exc}")
 
+    tg_cfg = resolve_telegram_credentials(tg_cfg)
     client = TelegramClient(tg_cfg["session_file"], tg_cfg["api_id"], tg_cfg["api_hash"])
 
     async def sertorio_analyze(ch_cfg: dict, text: str):

@@ -11,12 +11,16 @@ from datetime import datetime
 from pathlib import Path
 from telethon import TelegramClient
 
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(__file__))
+from bridge_core import resolve_telegram_credentials  # noqa: E402
+
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "tradingo_config.json")
 
 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
 
-TG      = CONFIG["telegram"]
+TG      = resolve_telegram_credentials(CONFIG["telegram"])
 LOG_DIR = Path(CONFIG["paths"]["logs"])
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 OUT_FILE = LOG_DIR / "signal_samples.txt"
