@@ -110,7 +110,7 @@
         "api_key_env": "ANTHROPIC_API_KEY",
         "min_confidence": 0.75,
         "debounce_sec": 25,
-        "live_instances": ["Vantage"],
+        "live_instances": ["TradinGo_Local"],
         "size_upgrade": false,
         "size_window_sec": 30,
         "notes": "Interprete LLM dei messaggi di gestione (BE/chiusure). shadow=true logga soltanto. Con shadow=false decide la gestione solo su live_instances (gli altri conti restano col parser). size_upgrade: il setup apre la size media, se in size_window_sec Ivan non da indicazioni di size un secondo ordine (allow_stack, entry_or_better) porta a size piena."
