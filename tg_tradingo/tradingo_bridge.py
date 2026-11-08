@@ -48,6 +48,8 @@ from ivan_interpreter import (
     InterpreterConfig,
     IvanInterpreter,
     IvanMessageBuffer,
+    build_size_add_signal,
+    classify_size,
     describe_signal,
     interpretation_to_signal,
     is_urgent,
@@ -75,7 +77,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.37"
+BRIDGE_VERSION = "2.39"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -125,10 +127,20 @@ def _ensure_runtime() -> tuple[BridgeState, ProcessedMessageStore]:
         PROCESSED_MESSAGES = ProcessedMessageStore(STATE_DIR / "processed_messages.json")
     return BRIDGE_STATE, PROCESSED_MESSAGES
 
-def get_mt5_paths():
-    return [i["signals_path"] for i in CONFIG.get("mt5_instances", []) if i.get("enabled", True)]
+def get_mt5_paths(only=None, exclude=None):
+    """Signal dirs of the enabled mt5_instances, optionally filtered by name."""
+    only = set(only) if only else None
+    exclude = set(exclude or ())
+    return [
+        i["signals_path"]
+        for i in CONFIG.get("mt5_instances", [])
+        if i.get("enabled", True)
+        and (only is None or i.get("name") in only)
+        and i.get("name") not in exclude
+    ]
 
-def write_signal(channel_cfg: dict, signal: dict, meta: dict | None = None):
+def write_signal(channel_cfg: dict, signal: dict, meta: dict | None = None,
+                 only=None, exclude=None):
     signal["timestamp"]    = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     signal["channel_id"]   = channel_cfg["id"]
     signal["channel_name"] = channel_cfg["name"]
@@ -160,7 +172,7 @@ def write_signal(channel_cfg: dict, signal: dict, meta: dict | None = None):
     payload = json.dumps(payload_for_ea(signal), indent=2)
     # Local disks first; UNC/Tailscale shares last so a hung SMB cannot delay Contabo.
     paths = sorted(
-        get_mt5_paths(),
+        get_mt5_paths(only, exclude),
         key=lambda p: (1 if is_unc_path(p) else 0, str(p).lower()),
     )
     for mt5_path in paths:
@@ -3318,6 +3330,9 @@ async def run_bridge():
     # Interprete LLM per i messaggi di gestione IVAN (config canale "interpreter").
     ivan_llm: dict[int, tuple[InterpreterConfig, IvanInterpreter, IvanMessageBuffer]] = {}
     ivan_llm_tasks: dict[int, asyncio.Task] = {}
+    ivan_size_tasks: dict[int, asyncio.Task] = {}
+    # Segnali legacy di gestione non scritti sui conti "live": riserva se l'LLM fallisce.
+    ivan_llm_fallback: dict[int, list[tuple[dict, dict]]] = {}
     for cid, cfg in channel_map.items():
         if cfg["parser"] != "ivan_vip":
             continue
@@ -3334,8 +3349,12 @@ async def run_bridge():
         log.info(
             f"  {cfg['id']} interpreter LLM {icfg.model} "
             f"mode={'shadow' if icfg.shadow else 'LIVE'} debounce={icfg.debounce_sec}s "
-            f"min_conf={icfg.min_confidence}"
+            f"min_conf={icfg.min_confidence} live_instances={icfg.live_instances or 'ALL'} "
+            f"size_upgrade={icfg.size_upgrade}/{icfg.size_window_sec}s"
         )
+
+    def llm_only(icfg: InterpreterConfig):
+        return icfg.live_instances or None
 
     async def ivan_llm_evaluate(cid: int, ch_cfg: dict, meta: dict, delay: float):
         """Dopo il debounce valuta l'insieme dei messaggi in attesa."""
@@ -3351,6 +3370,15 @@ async def run_bridge():
             res = await asyncio.to_thread(
                 interp.interpret, context, last_trade, buf.executed(now)
             )
+            fallback = ivan_llm_fallback.pop(cid, [])
+            if res.reason.startswith("errore") and fallback and not icfg.shadow:
+                for fb_sig, fb_meta in fallback:
+                    if write_signal(ch_cfg, dict(fb_sig), dict(fb_meta), only=llm_only(icfg)):
+                        log.warning(
+                            f"[IVAN_LLM] interprete in errore: riserva parser "
+                            f"{fb_sig.get('action')} sui conti live"
+                        )
+                return
             signal = interpretation_to_signal(res, ch_cfg, last_trade, context[-1])
             if signal:
                 buf.mark_executed(now, describe_signal(signal))
@@ -3376,12 +3404,56 @@ async def run_bridge():
                 )
                 return
             meta = {**meta, "message_id": pending[-1], "event_type": "LLM"}
-            if write_signal(ch_cfg, signal, meta):
+            if write_signal(ch_cfg, signal, meta, only=llm_only(icfg)):
                 log.info(f"[IVAN_LLM] EMESSO {signal['action']} ({res.reason[:60]})")
         except asyncio.CancelledError:
             pass
         except Exception as e:  # noqa: BLE001
             log.error(f"[IVAN_LLM] errore: {e}\n{traceback.format_exc()}")
+
+    async def ivan_size_watch(cid: int, ch_cfg: dict, setup: dict, meta: dict, t0: float):
+        """Size prudenziale: il setup è aperto a size media; se nella finestra Ivan
+        non dà indicazioni di size/rischio, un secondo ordine porta a size piena
+        (l'EA lo apre solo con prezzo nel range o migliore)."""
+        icfg, _, buf = ivan_llm[cid]
+        try:
+            await asyncio.sleep(float(icfg.size_window_sec))
+            now = time.time()
+            msgs = buf.messages_since(t0)
+            executed = buf.executed(now)
+            if buf.flat or executed:
+                size, reason, source = "KEEP", f"gestione già eseguita: {executed}", "state"
+            else:
+                dec = await asyncio.to_thread(classify_size, icfg, setup, msgs)
+                size, reason, source = dec.size, dec.reason, dec.source
+            add = size in ("NONE", "FULL")
+            if not add:
+                outcome = "LLM_SIZE_KEEP"
+            elif icfg.shadow:
+                outcome = "LLM_SIZE_SHADOW"
+            else:
+                outcome = "LLM_SIZE_ADD"
+            add_sig = build_size_add_signal(setup, ch_cfg) if add else None
+            append_bridge_event(CONFIG, {
+                "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "channel_id": ch_cfg["id"],
+                "chat_id": cid,
+                "message_id": meta.get("message_id"),
+                "event_type": "LLM_SIZE",
+                "raw_text": " | ".join(msgs[-5:]),
+                "outcome": outcome,
+                "action": (add_sig or {}).get("action"),
+                "payload": add_sig,
+                "llm": {"size": size, "reason": reason, "source": source},
+            })
+            log.info(f"[IVAN_LLM SIZE] {outcome} size={size} ({source}: {reason[:60]})")
+            if add_sig and not icfg.shadow:
+                write_signal(ch_cfg, add_sig, {**meta, "event_type": "LLM_SIZE"},
+                             only=llm_only(icfg))
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:  # noqa: BLE001
+            log.error(f"[IVAN_LLM SIZE] errore: {e}\n{traceback.format_exc()}")
 
     def ivan_llm_schedule(cid: int, ch_cfg: dict, meta: dict, text: str):
         icfg, _, _ = ivan_llm[cid]
@@ -3518,6 +3590,8 @@ async def run_bridge():
                 raise
 
             signal = coerce_edit_open_to_update(signal, is_edit)
+            write_exclude = None
+            size_setup = None
 
             # Messaggi di gestione IVAN (no setup numerico): l'interprete LLM li
             # valuta nel contesto dei messaggi precedenti dopo un breve debounce.
@@ -3531,6 +3605,17 @@ async def run_bridge():
                 and signal.get("action") == "OPEN"
             ):
                 ivan_llm[int(chat_id)][2].reset()  # nuovo setup: contesto nuovo
+                prev_size = ivan_size_tasks.pop(int(chat_id), None)
+                if prev_size and not prev_size.done():
+                    prev_size.cancel()
+                ivan_llm_fallback.pop(int(chat_id), None)
+                lot_factor = signal.get("lot_factor")
+                if (
+                    ivan_llm[int(chat_id)][0].size_upgrade
+                    and not signal.get("allow_stack")
+                    and not (lot_factor and float(lot_factor) < 1.0)
+                ):
+                    size_setup = dict(signal)
             if (
                 int(chat_id) in ivan_llm
                 and not is_edit
@@ -3548,10 +3633,22 @@ async def run_bridge():
                     and signal
                     and signal.get("action") not in ("OPEN", "UPDATE_OPEN")
                 ):
-                    log.info(
-                        f"[IVAN_LLM] legacy {signal['action']} sospeso: decide l'interprete"
-                    )
-                    signal = None
+                    ivan_llm_fallback.setdefault(int(chat_id), []).append((
+                        dict(signal),
+                        {"chat_id": int(chat_id), "message_id": message_id,
+                         "event_type": event_type},
+                    ))
+                    if icfg.live_instances:
+                        write_exclude = list(icfg.live_instances)
+                        log.info(
+                            f"[IVAN_LLM] legacy {signal['action']} solo sui conti parser: "
+                            f"su {icfg.live_instances} decide l'interprete"
+                        )
+                    else:
+                        log.info(
+                            f"[IVAN_LLM] legacy {signal['action']} sospeso: decide l'interprete"
+                        )
+                        signal = None
 
             if signal:
                 msg_date = getattr(event, "date", None)
@@ -3566,7 +3663,12 @@ async def run_bridge():
                     "telegram_date": telegram_date,
                     "event_type": event_type,
                 }
-                if write_signal(ch_cfg, signal, meta):
+                if write_signal(ch_cfg, signal, meta, exclude=write_exclude):
+                    if size_setup is not None:
+                        ivan_size_tasks[int(chat_id)] = asyncio.create_task(
+                            ivan_size_watch(int(chat_id), ch_cfg, size_setup,
+                                            dict(meta), time.time())
+                        )
                     # Un EDIT che non cambia il testo non porta informazione
                     # nuova: prenotiamo la sua chiave così non riemette il
                     # segnale (STARK ri-pubblica ogni setup come EDIT identico
