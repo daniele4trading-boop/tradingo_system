@@ -31,39 +31,39 @@ Override del percorso: variabile d'ambiente `TRADINGO_SECRETS_FILE`.
 
 ```powershell
 cd C:\TG_TradinGo
-python -m tg_tradingo.secrets_store set NOME_CHIAVE
+python C:\TG_TradinGo\secrets_store.py set NOME_CHIAVE
 # oppure da pipeline:
-echo "nuovo-valore" | python -m tg_tradingo.secrets_store set NOME_CHIAVE
+echo "nuovo-valore" | python C:\TG_TradinGo\secrets_store.py set NOME_CHIAVE
 ```
 
 Verificare che tutte le chiavi richieste siano presenti:
 
 ```powershell
-python -m tg_tradingo.secrets_store export-check
+python C:\TG_TradinGo\secrets_store.py export-check
 ```
 
 ## Visualizzare le chiavi presenti (senza valori)
 
 ```powershell
-python -m tg_tradingo.secrets_store list
+python C:\TG_TradinGo\secrets_store.py list
 ```
 
 ## Leggere un valore (con conferma esplicita)
 
 ```powershell
-python -m tg_tradingo.secrets_store get NOME_CHIAVE --reveal
+python C:\TG_TradinGo\secrets_store.py get NOME_CHIAVE --reveal
 ```
 
 ## Eliminare una chiave
 
 ```powershell
-python -m tg_tradingo.secrets_store delete NOME_CHIAVE
+python C:\TG_TradinGo\secrets_store.py delete NOME_CHIAVE
 ```
 
 ## Importare da variabili d'ambiente esistenti
 
 ```powershell
-python -m tg_tradingo.secrets_store import-env ANTHROPIC_API_KEY GEMINI_API_KEY
+python C:\TG_TradinGo\secrets_store.py import-env ANTHROPIC_API_KEY GEMINI_API_KEY
 ```
 
 ## Migrazione iniziale

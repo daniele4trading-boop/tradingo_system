@@ -19,10 +19,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from bridge_core import resolve_telegram_credentials
 from telethon import TelegramClient
 from telethon.tl.types import Channel, Chat
-
-from bridge_core import resolve_telegram_credentials
 
 CONFIG_FILE = os.environ.get(
     "TRADINGO_CONFIG",

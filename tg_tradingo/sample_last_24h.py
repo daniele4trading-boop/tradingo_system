@@ -21,11 +21,14 @@ import json
 import os
 import sys
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from telethon import TelegramClient
 from telethon.tl.types import Channel, Chat
+
+sys.path.insert(0, os.path.dirname(__file__) or ".")
+from bridge_core import resolve_telegram_credentials
 
 CONFIG_FILE = os.environ.get(
     "TRADINGO_CONFIG",
@@ -73,7 +76,7 @@ def channel_full_id(entity) -> int | None:
 def import_parsers():
     """Import parser functions from bridge (no Telegram client startup)."""
     sys.path.insert(0, os.path.dirname(__file__))
-    from bridge_core import EphemeralBridgeState, resolve_telegram_credentials
+    from bridge_core import EphemeralBridgeState
     from tradingo_bridge import (
         parser_sala_gold,
         parser_sala_stark,
@@ -127,7 +130,7 @@ async def run(args: argparse.Namespace) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     out_file = log_dir / f"signal_last_{args.hours}h.txt"
 
-    since = datetime.now(timezone.utc) - timedelta(hours=args.hours)
+    since = datetime.now(UTC) - timedelta(hours=args.hours)
     configured = [ch for ch in config.get("channels", []) if ch.get("enabled", True)]
     known_ids = {int(ch["telegram_id"]): ch for ch in configured}
     parsers = import_parsers() if args.parser_dry_run else {}
@@ -162,7 +165,7 @@ async def run(args: argparse.Namespace) -> None:
                 try:
                     entity = await client.get_entity(cid)
                     msgs = await fetch_messages_since(client, entity, since)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     log(f"  ERRORE: {exc}\n")
                     continue
 
@@ -177,7 +180,7 @@ async def run(args: argparse.Namespace) -> None:
                         try:
                             sig = parser_fn(m.text, ch)
                             log(f"     -> {format_signal(sig)}")
-                        except Exception as exc:
+                        except Exception as exc:  # noqa: BLE001
                             log(f"     -> PARSER_ERROR: {exc}")
                     for row in m.text.splitlines():
                         log(f"     {row}")
@@ -200,7 +203,7 @@ async def run(args: argparse.Namespace) -> None:
                     title = getattr(entity, "title", str(entity.id))
                     try:
                         msgs = await fetch_messages_since(client, entity, since)
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S112
                         continue
 
                     if not msgs:

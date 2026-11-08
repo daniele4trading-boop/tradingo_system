@@ -49,10 +49,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$PYTHON = "python"
+$PYTHON         = "python"
+$SECRETS_SCRIPT = "C:\TG_TradinGo\secrets_store.py"
 
 # Leggi le chiavi disponibili nell'archivio
-$keys = & $PYTHON -m tg_tradingo.secrets_store list 2>$null
+$keys = & $PYTHON $SECRETS_SCRIPT list 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $keys) {
     Write-Warning "Archivio segreti vuoto o non inizializzato. Avviare il comando senza env injection."
     & $Command[0] @($Command | Select-Object -Skip 1)
@@ -64,7 +65,7 @@ $envOverride = @{}
 foreach ($k in $keys) {
     $k = $k.Trim()
     if (-not $k) { continue }
-    $val = & $PYTHON -m tg_tradingo.secrets_store get $k --reveal 2>$null
+    $val = & $PYTHON $SECRETS_SCRIPT get $k --reveal 2>$null
     if ($val) {
         $envOverride[$k] = $val
     }

@@ -136,13 +136,13 @@ Comandi rapidi:
 
 ```powershell
 # Verifica che tutte le chiavi richieste siano presenti
-python -m tg_tradingo.secrets_store export-check
+python C:\TG_TradinGo\secrets_store.py export-check
 
 # Aggiungere/ruotare una chiave
-python -m tg_tradingo.secrets_store set NOME_CHIAVE
+python C:\TG_TradinGo\secrets_store.py set NOME_CHIAVE
 
 # Elenco chiavi (senza valori)
-python -m tg_tradingo.secrets_store list
+python C:\TG_TradinGo\secrets_store.py list
 ```
 
 I file `tradingo_config.example.json` e `webapp_config.example.json` usano

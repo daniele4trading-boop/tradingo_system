@@ -28,8 +28,9 @@ $ErrorActionPreference = "Stop"
 $TG_ROOT    = "C:\TG_TradinGo"
 $CFG_JSON   = Join-Path $TG_ROOT "tradingo_config.json"
 $WCFG_JSON  = Join-Path $TG_ROOT "webapp_config.json"
-$SECRETS_DIR = Join-Path $TG_ROOT "secrets"
-$PYTHON     = "python"
+$SECRETS_DIR   = Join-Path $TG_ROOT "secrets"
+$PYTHON        = "python"
+$SECRETS_SCRIPT = Join-Path $TG_ROOT "secrets_store.py"
 
 function Write-Step { param($msg) Write-Host ">> $msg" -ForegroundColor Cyan }
 function Write-Ok   { param($msg) Write-Host "   OK: $msg" -ForegroundColor Green }
@@ -80,7 +81,7 @@ function Set-Secret {
         return
     }
     if ($PSCmdlet.ShouldProcess($Name, "set nell'archivio DPAPI")) {
-        $Value | & $PYTHON -m tg_tradingo.secrets_store set $Name
+        $Value | & $PYTHON $SECRETS_SCRIPT set $Name
         Write-Ok "$Name salvato"
     }
 }
@@ -110,7 +111,7 @@ foreach ($k in $machineKeys) {
 Write-Step "Verifica archivio (export-check)"
 $checkOk = $false
 if ($PSCmdlet.ShouldProcess("export-check", "Esegui")) {
-    & $PYTHON -m tg_tradingo.secrets_store export-check
+    & $PYTHON $SECRETS_SCRIPT export-check
     $checkOk = ($LASTEXITCODE -eq 0)
 }
 
@@ -127,6 +128,7 @@ if ($PSCmdlet.ShouldProcess($SECRETS_DIR, "icacls: solo Administrator")) {
     }
     icacls $SECRETS_DIR /reset | Out-Null
     icacls $SECRETS_DIR /inheritance:r | Out-Null
+    icacls $SECRETS_DIR /grant "SYSTEM:(OI)(CI)F" | Out-Null
     icacls $SECRETS_DIR /grant "Administrator:(OI)(CI)F" | Out-Null
     Write-Ok "ACL applicati"
 }
@@ -164,6 +166,18 @@ foreach ($k in $machineKeys) {
         }
     } else {
         Write-Skip "$k: gia' assente"
+    }
+}
+
+# ── 8. Pulizia backup in chiaro ──────────────────────────────────────────────
+Write-Step "Eliminazione backup in chiaro"
+foreach ($f in @($CFG_JSON, $WCFG_JSON)) {
+    $bk = "$f.bak_$stamp"
+    if (Test-Path $bk) {
+        if ($PSCmdlet.ShouldProcess($bk, "Elimina backup in chiaro")) {
+            Remove-Item $bk -Force
+            Write-Ok "Eliminato $bk"
+        }
     }
 }
 
