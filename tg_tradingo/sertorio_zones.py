@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -622,12 +623,27 @@ class ShadowBook:
                 "setups": len({c["setup_id"] for c in rows})}
 
 
-def atomic_write_json(path: Path, data: dict) -> None:
+def atomic_write_json(path: Path, data: dict, retries: int = 6, backoff_sec: float = 0.05) -> None:
+    """Temp file + os.replace. Su Windows il replace fallisce (WinError 5/32) se un lettore
+    (webapp, EA) ha il file aperto in quel momento: si riprova e il .tmp non resta mai sul disco."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".sz_", suffix=".tmp")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
+    payload = json.dumps(data, ensure_ascii=False, indent=1)
+    for attempt in range(retries):
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".sz_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            os.replace(tmp, path)
+            return
+        except OSError as e:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            locked = isinstance(e, PermissionError) or getattr(e, "winerror", None) in (5, 32)
+            if not locked or attempt + 1 >= retries:
+                raise
+            time.sleep(backoff_sec * (attempt + 1))
 
 
 def shadow_rows_from_csv(text: str) -> list[dict]:

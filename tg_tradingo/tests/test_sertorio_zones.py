@@ -175,3 +175,41 @@ def test_build_open_signal_and_live_paths(tmp_path):
     book.replace_setups([sz.Setup(**setup)], ts)
     book.on_tick(ts, 4002.4, 4002.6)
     assert fills == [("s1", 4002.5)] and len(book.open) == 2
+
+
+def test_atomic_write_json_retries_locked_target(tmp_path, monkeypatch):
+    import os as _os
+
+    import sertorio_zones as sz
+
+    target = tmp_path / "sertorio_shadow.json"
+    real = _os.replace
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(13, "Accesso negato")
+        return real(src, dst)
+
+    monkeypatch.setattr(sz.os, "replace", flaky)
+    monkeypatch.setattr(sz.time, "sleep", lambda s: None)
+    sz.atomic_write_json(target, {"a": 1})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"a": 1}
+    assert calls["n"] == 3
+    assert not list(tmp_path.glob(".sz_*.tmp"))
+
+
+def test_atomic_write_json_gives_up_without_leaking_tmp(tmp_path, monkeypatch):
+    import pytest as _pytest
+
+    import sertorio_zones as sz
+
+    def always(src, dst):
+        raise PermissionError(13, "Accesso negato")
+
+    monkeypatch.setattr(sz.os, "replace", always)
+    monkeypatch.setattr(sz.time, "sleep", lambda s: None)
+    with _pytest.raises(PermissionError):
+        sz.atomic_write_json(tmp_path / "x.json", {"a": 1})
+    assert not list(tmp_path.glob(".sz_*.tmp"))
