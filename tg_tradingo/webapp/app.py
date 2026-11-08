@@ -15,10 +15,9 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import (
@@ -34,9 +33,9 @@ _BASE_DIR = _PKG_DIR.parent
 if str(_BASE_DIR) not in sys.path:
     sys.path.insert(0, str(_BASE_DIR))
 
-from webapp.admin_mgr import AdminManager  # noqa: E402
-from webapp.auth import RateLimiter, SessionManager, verify_password  # noqa: E402
-from webapp.collector import Collector  # noqa: E402
+from webapp.admin_mgr import AdminManager
+from webapp.auth import RateLimiter, SessionManager, verify_password
+from webapp.collector import Collector
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("TradinGoWeb")
@@ -111,7 +110,7 @@ def _is_https(request: Request) -> bool:
 def _set_session_cookie(resp, request: Request, token: str) -> None:
     """Persist session on iOS Safari (esp. via Tailscale HTTPS Serve)."""
     secure = _is_https(request)
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=sessions.ttl_sec)
+    expires_at = datetime.now(UTC) + timedelta(seconds=sessions.ttl_sec)
     resp.set_cookie(
         COOKIE_NAME,
         token,

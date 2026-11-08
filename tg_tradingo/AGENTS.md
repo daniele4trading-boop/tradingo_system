@@ -127,6 +127,30 @@ signal_ch_*.json  (uno per canale)
 
 ---
 
+## Archivio segreti (DPAPI)
+
+Le API key e le password live sono cifrate con Windows DPAPI in
+`C:\TG_TradinGo\secrets\store.dpapi`. Documentazione completa: `docs/SECRETS.md`.
+
+Comandi rapidi:
+
+```powershell
+# Verifica che tutte le chiavi richieste siano presenti
+python -m tg_tradingo.secrets_store export-check
+
+# Aggiungere/ruotare una chiave
+python -m tg_tradingo.secrets_store set NOME_CHIAVE
+
+# Elenco chiavi (senza valori)
+python -m tg_tradingo.secrets_store list
+```
+
+I file `tradingo_config.example.json` e `webapp_config.example.json` usano
+`"@secrets"` come valore nei campi sensibili: il bridge sostituisce il sentinel
+con il valore letto dall'archivio a runtime.
+
+---
+
 ## Regole per modifiche
 
 1. **Non committare** `tradingo_config.json` con `api_hash` reale.

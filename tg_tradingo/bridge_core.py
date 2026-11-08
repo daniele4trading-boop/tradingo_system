@@ -15,9 +15,8 @@ import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 log = logging.getLogger("TradinGo")
 
@@ -89,7 +88,7 @@ def resolve_config_path(explicit: str | os.PathLike | None = None) -> Path:
             if str(api_id).strip() == _SECRETS_SENTINEL or api_hash == _SECRETS_SENTINEL:
                 return True
             return bool(api_id) and bool(api_hash) and api_hash != PLACEHOLDER_API_HASH
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
     seen: set[Path] = set()
@@ -825,7 +824,7 @@ class BridgeState:
                 self.oro_pending_dir,
                 self.forex_pending_symbol,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             log.warning("Could not load bridge state %s: %s", self.state_file, exc)
 
     def save(self) -> None:
@@ -855,7 +854,7 @@ class BridgeState:
             },
             "forex_last_trade": self.forex_last_trade,
             "close_price_pending": self.close_price_pending,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         save_state_json(self.state_file, payload, "bridge state")
 
@@ -1079,7 +1078,7 @@ class ProcessedMessageStore:
             self._keys = list(data.get("keys", []))
             self._seen = set(self._keys)
             log.info("Loaded %d processed message keys", len(self._keys))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             log.warning("Could not load processed messages %s: %s", self.store_file, exc)
 
     def save(self) -> None:
@@ -1088,7 +1087,7 @@ class ProcessedMessageStore:
             self._seen = set(self._keys)
         save_state_json(
             self.store_file,
-            {"keys": self._keys, "updated_at": datetime.now(timezone.utc).isoformat()},
+            {"keys": self._keys, "updated_at": datetime.now(UTC).isoformat()},
             "processed messages",
         )
 
@@ -1350,8 +1349,7 @@ def apply_lot_rules(signal: dict, ch: dict) -> dict:
         expected = int(
             exec_cfg.get("tp_levels_expected", ch.get("tp_levels_expected", 1)) or 1
         )
-        if expected < 1:
-            expected = 1
+        expected = max(expected, 1)
         if expected >= 2:
             signal["trades"] = expected
             signal["fixed_lot"] = lot_per_tp * lot_factor

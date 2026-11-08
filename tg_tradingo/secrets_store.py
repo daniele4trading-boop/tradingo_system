@@ -40,7 +40,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -155,7 +155,7 @@ class SecretsStore:
             encrypted = base64.b64decode(self._path.read_bytes())
             plaintext = _decrypt(encrypted)
             return json.loads(plaintext.decode("utf-8"))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             log.error("Impossibile leggere l'archivio segreti: %s", exc)
             return {}
 
@@ -165,12 +165,12 @@ class SecretsStore:
         encrypted = _encrypt(plaintext)
         self._path.write_bytes(base64.b64encode(encrypted))
         # Aggiorna metadati (nomi chiave, mai valori)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         meta: dict[str, Any] = {}
         if self._meta_path.exists():
             try:
                 meta = json.loads(self._meta_path.read_text(encoding="utf-8"))
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass
         if "created" not in meta:
             meta["created"] = now
@@ -366,8 +366,8 @@ def main(argv: list[str] | None = None) -> int:
     except NotImplementedError as exc:
         print(f"Errore: {exc}", file=sys.stderr)
         return 1
-    except Exception as exc:
-        log.exception("Errore CLI: %s", exc)
+    except Exception:
+        log.exception("Errore CLI")
         return 1
 
 
