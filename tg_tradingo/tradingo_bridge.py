@@ -11,24 +11,22 @@ CANALI:
 
 import asyncio
 import json
+import logging
 import math
 import os
 import re
 import sys
 import time
-import logging
 import traceback
 import unicodedata
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from telethon import TelegramClient, events
-
+import sertorio_zones
 from bridge_core import (
     BridgeState,
     ProcessedMessageStore,
     apply_lot_rules,
-    atomic_write_text,
     atomic_write_text_timed,
     is_unc_path,
     make_signal_id,
@@ -40,12 +38,12 @@ from bridge_core import (
     match_partial_close_intent,
     match_selective_be_intent,
     match_selective_close_intent,
-    salvage_incoherent_entry_range,
     payload_for_ea,
+    resolve_telegram_credentials,
+    salvage_incoherent_entry_range,
     validate_signal,
 )
 from bridge_journal import append_bridge_event, write_heartbeat
-import sertorio_zones
 from ivan_interpreter import (
     InterpreterConfig,
     IvanInterpreter,
@@ -56,6 +54,7 @@ from ivan_interpreter import (
     interpretation_to_signal,
     is_urgent,
 )
+from telethon import TelegramClient, events
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -142,7 +141,7 @@ def get_mt5_paths(only=None, exclude=None):
 
 def write_signal(channel_cfg: dict, signal: dict, meta: dict | None = None,
                  only=None, exclude=None):
-    signal["timestamp"]    = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    signal["timestamp"]    = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     signal["channel_id"]   = channel_cfg["id"]
     signal["channel_name"] = channel_cfg["name"]
     written_targets: list[str] = []
@@ -189,7 +188,7 @@ def write_signal(channel_cfg: dict, signal: dict, meta: dict | None = None,
             log.info(f"[{channel_cfg['id']}] -> {out_file.name} | "
                      f"action={signal.get('action')} symbol={signal.get('symbol','')} "
                      f"dir={signal.get('direction','')} sid={signal.get('signal_id','')}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"[{channel_cfg['id']}] Errore scrittura {out_file}: {e}")
             # Keep going: Contabo local must succeed even if Gamehosting share hangs.
             continue
@@ -304,7 +303,7 @@ def strip_md(text: str) -> str:
     # Rimuove markdown
     text = re.sub(r"[*`_]", " ", text)
     # Rimuove caratteri zero-width e spazi non-breaking invisibili
-    text = re.sub(r"[​‌‍‎‏﻿ ⁠]", " ", text)
+    text = re.sub("[\u200B\u200C\u200D\u200E\u200F\uFEFF\u00A0\u2060]", " ", text)
     # Normalizza spazi multipli
     text = re.sub(r"  +", " ", text)
     return text
@@ -3272,7 +3271,7 @@ def update_levels_safe(ch_cfg: dict, text: str) -> None:
             n = levels_extract.update_levels(Path(f), ch_cfg["id"], text, default_symbol=default)
         if n:
             log.info(f"[LEVELS] {ch_cfg['id']}: {n} livelli aggiornati")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         log.warning(f"[LEVELS] {ch_cfg.get('id')}: {exc}")
 
 
@@ -3340,7 +3339,8 @@ async def run_bridge():
         icfg = InterpreterConfig.from_channel(cfg)
         if not icfg.enabled:
             continue
-        if not os.environ.get(icfg.api_key_env):
+        from secrets_store import store as _ss
+        if not _ss.get(icfg.api_key_env):
             log.warning(
                 f"  {cfg['id']} interpreter abilitato ma {icfg.api_key_env} assente: disattivato"
             )
@@ -3383,7 +3383,7 @@ async def run_bridge():
             if signal:
                 buf.mark_executed(now, describe_signal(signal))
             append_bridge_event(CONFIG, {
-                "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "channel_id": ch_cfg["id"],
                 "chat_id": cid,
                 "message_id": pending[-1],
@@ -3408,7 +3408,7 @@ async def run_bridge():
                 log.info(f"[IVAN_LLM] EMESSO {signal['action']} ({res.reason[:60]})")
         except asyncio.CancelledError:
             pass
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"[IVAN_LLM] errore: {e}\n{traceback.format_exc()}")
 
     async def ivan_size_watch(cid: int, ch_cfg: dict, setup: dict, meta: dict, t0: float):
@@ -3435,7 +3435,7 @@ async def run_bridge():
                 outcome = "LLM_SIZE_ADD"
             add_sig = build_size_add_signal(setup, ch_cfg) if add else None
             append_bridge_event(CONFIG, {
-                "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "channel_id": ch_cfg["id"],
                 "chat_id": cid,
                 "message_id": meta.get("message_id"),
@@ -3452,7 +3452,7 @@ async def run_bridge():
                              only=llm_only(icfg))
         except asyncio.CancelledError:
             pass
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"[IVAN_LLM SIZE] errore: {e}\n{traceback.format_exc()}")
 
     def ivan_llm_schedule(cid: int, ch_cfg: dict, meta: dict, text: str):
@@ -3477,9 +3477,10 @@ async def run_bridge():
                     f.parent.mkdir(parents=True, exist_ok=True)
                 atomic_write_text_timed(f, json.dumps({"action": "NONE"}, indent=2))
                 log.info(f"Init: {f}")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 log.error(f"Init skipped {f}: {exc}")
 
+    tg_cfg = resolve_telegram_credentials(tg_cfg)
     client = TelegramClient(tg_cfg["session_file"], tg_cfg["api_id"], tg_cfg["api_hash"])
 
     async def sertorio_analyze(ch_cfg: dict, text: str):
@@ -3495,7 +3496,7 @@ async def run_bridge():
                     "raw_text": text[:200], "outcome": "ZONES_SHADOW" if doc["shadow"] else "ZONES",
                     "payload": {"analysis_id": doc["analysis_id"], "setups": doc["setups"]},
                 })
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"[SZ] errore analisi: {e}\n{traceback.format_exc()}")
 
     async def process_message(event, is_edit: bool = False):
@@ -3522,7 +3523,7 @@ async def run_bridge():
                     f"[{ch_cfg['id']}] Duplicato ignorato {event_type} id={message_id}"
                 )
                 append_bridge_event(CONFIG, {
-                    "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "channel_id": ch_cfg["id"],
                     "chat_id": int(chat_id),
                     "message_id": int(message_id),
@@ -3577,7 +3578,7 @@ async def run_bridge():
                     signal = parser(text, ch_cfg)
             except Exception as parse_exc:
                 append_bridge_event(CONFIG, {
-                    "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "channel_id": ch_cfg["id"],
                     "chat_id": int(chat_id),
                     "message_id": int(message_id),
@@ -3652,7 +3653,7 @@ async def run_bridge():
             if signal:
                 msg_date = getattr(event, "date", None)
                 telegram_date = (
-                    msg_date.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    msg_date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
                     if msg_date
                     else None
                 )
@@ -3683,7 +3684,7 @@ async def run_bridge():
                     )
                     processed_messages.mark_processed(dedup_key, *edit_alias)
                     append_bridge_event(CONFIG, {
-                        "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "channel_id": ch_cfg["id"],
                         "chat_id": int(chat_id),
                         "message_id": int(message_id),
@@ -3701,7 +3702,7 @@ async def run_bridge():
             else:
                 outcome = "IGNORED_PATTERN" if matched_ignore else "UNPARSED"
                 append_bridge_event(CONFIG, {
-                    "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "channel_id": ch_cfg["id"],
                     "chat_id": int(chat_id),
                     "message_id": int(message_id),
@@ -3712,7 +3713,7 @@ async def run_bridge():
                 })
                 log.debug(f"[{ch_cfg['id']}] Ignorato")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"Errore: {e}\n{traceback.format_exc()}")
 
     @client.on(events.NewMessage(chats=active_ids))
@@ -3726,7 +3727,7 @@ async def run_bridge():
     @client.on(events.Raw())
     async def on_raw(update):
         """Rileva ban da canali e lo segnala immediatamente."""
-        pass  # Gestito dal BanDetector sul logger Telethon
+        # Gestito dal BanDetector sul logger Telethon
 
     async def check_banned_channels():
         """Controlla periodicamente se siamo stati bannati da canali sconosciuti."""
@@ -3739,7 +3740,7 @@ async def run_bridge():
                 if eid and eid not in known_ids:
                     # Canale sconosciuto — non fa nulla ma lo monitoriamo
                     pass
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"[BAN CHECK] Errore: {e}")
 
     async with client:
@@ -3799,7 +3800,7 @@ def main():
         except KeyboardInterrupt:
             log.info("Stop manuale.")
             break
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"Crash: {e}\n{traceback.format_exc()}")
             log.info(f"Restart in {delay}s...")
             time.sleep(delay)

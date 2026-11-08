@@ -206,9 +206,16 @@ def _extract_json(text: str) -> dict:
 
 
 def anthropic_complete(system: str, user: str, cfg: InterpreterConfig) -> str:
-    api_key = os.environ.get(cfg.api_key_env, "")
+    try:
+        from secrets_store import store as _ss
+    except ImportError:
+        try:
+            from tg_tradingo.secrets_store import store as _ss  # type: ignore[no-redef]
+        except ImportError:
+            _ss = None  # type: ignore[assignment]
+    api_key = (_ss.get(cfg.api_key_env) if _ss else None) or os.environ.get(cfg.api_key_env, "")
     if not api_key:
-        raise RuntimeError(f"variabile {cfg.api_key_env} assente")
+        raise RuntimeError(f"secret {cfg.api_key_env} assente: usare secrets_store set {cfg.api_key_env}")
     body = json.dumps({
         "model": cfg.model,
         "max_tokens": int(cfg.max_tokens),

@@ -1,7 +1,7 @@
 {
   "host": "0.0.0.0",
   "port": 8600,
-  "secret_key": "CAMBIA_CON_python_-m_webapp.hash_password",
+  "secret_key": "@secrets",
   "session_days": 180,
   "login_max_attempts": 5,
   "login_lockout_minutes": 15,

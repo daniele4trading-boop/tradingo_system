@@ -1,7 +1,7 @@
 {
   "telegram": {
-    "api_id": 0,
-    "api_hash": "INSERISCI_API_HASH_TELEGRAM",
+    "api_id": "@secrets",
+    "api_hash": "@secrets",
     "session_file": "C:\\TelegramBridge\\telegram_bridge_session.session"
   },
   "paths": {
