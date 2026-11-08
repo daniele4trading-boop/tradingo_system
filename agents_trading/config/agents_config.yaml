@@ -1,0 +1,83 @@
+# Trading Agents Configuration - Exness Demo
+# Created: 2026-11-08
+# Account: 480578231 (Exness-MT5Trial11)
+
+broker:
+  name: "Exness"
+  account_login: 480578231
+  server: "Exness-MT5Trial11"
+  password_secret: "EXNESS_MT5_PASSWORD_480578231"  # Read from secrets_store.py
+  demo_mode: true
+
+mt5:
+  terminal_path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+  signals_path: "C:\\TG_TradinGo\\signals\\exness_demo"
+  enabled_symbols:
+    - XAUUSD    # Gold
+    - EURUSD    # EUR/USD
+    - GBPUSD    # GBP/USD
+    - USDJPY    # USD/JPY
+    - SPX500    # S&P 500
+    - FTSE100   # FTSE 100 Index
+
+agents:
+  chart_analyst:
+    model: "claude-opus-5-5"
+    vision_enabled: true
+    analysis_interval_minutes: 5
+    confidence_threshold: 0.6
+
+  strategy_executor:
+    model: "claude-opus-5-5"
+    max_tokens: 1200
+    risk_per_trade_pct: 1.0
+    max_position_pct: 3.0
+    profit_target_ratio: 2.5  # Risk:Reward
+
+  risk_manager:
+    max_open_positions: 3
+    max_daily_loss_pct: 5.0
+    min_position_size: 0.01
+    max_position_size: 1.0
+    trailing_stop_enabled: false
+
+trading_rules:
+  entry_conditions:
+    - mean_reversion_zscore: 2.0
+    - momentum_breakout: true
+    - volume_confirmation: true
+
+  holding_period_minutes:
+    min: 15
+    max: 240  # 4 hours
+
+  market_hours:
+    london_open: "08:00"
+    london_close: "17:00"
+    ny_open: "13:30"
+    ny_close: "22:00"
+
+  avoid_periods:
+    - news_events: true
+    - high_volatility_hours: ["06:00", "13:00"]  # UTC
+
+backtest:
+  enabled: true
+  symbols:
+    - XAUUSD
+  timeframes:
+    - "1H"
+    - "4H"
+  start_date: "2026-09-01"
+  end_date: "2026-11-08"
+  initial_capital: 1000
+
+logging:
+  level: "INFO"
+  file: "C:\\TG_TradinGo\\logs\\agents.log"
+  console: true
+
+api:
+  anthropic_key_env: "ANTHROPIC_API_KEY"
+  max_retries: 3
+  timeout_seconds: 30
