@@ -10,7 +10,7 @@
 
 InpSignalsPath=
 InpUseAbsolutePath=false
-InpChannels=gold,forex,stark,ivan,ivanbtc,hybridgold,hybridfx
+InpChannels=gold,forex,stark,ivan,ivanbtc,hybridgold,hybridfx,sertorio
 InpSymbolSuffix=
 InpLotMultiplier=1.0
 InpAddLotFactor=0.5
@@ -20,6 +20,7 @@ InpLotGold=0.0
 InpLotOro=0.0
 InpLotHybridGold=0.01
 InpLotHybridFx=0.01
+InpLotSertorio=0.20
 InpLotForex=0.0
 InpTagIvan=IT
 InpTagStark=AS

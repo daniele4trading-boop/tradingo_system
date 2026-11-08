@@ -4,7 +4,7 @@ Questo documento descrive il sistema **Telegram → JSON → MT4/MT5** nella rep
 Leggilo prima di modificare parser, config o EA.
 
 **Branch canonico: `main`** (`git fetch origin main && git checkout main && git pull`).
-Versioni correnti — bridge **2.31**, EA MT5 **2.32**, EA MT4 **1.15** — e mappa preset → conto in
+Versioni correnti — bridge **2.34**, EA MT5 **2.36**, EA MT4 **1.15** — e mappa preset → conto in
 [`docs/VERSIONS_AND_PRESETS.md`](docs/VERSIONS_AND_PRESETS.md).
 Setup MT4 T4Trade / path iFunds: [`docs/MT4_T4TRADE_SETUP.md`](docs/MT4_T4TRADE_SETUP.md).
 
@@ -124,6 +124,30 @@ signal_ch_*.json  (uno per canale)
 - `OPEN` — formato markdown ("Apro una nuova operazione") o forex piatto
 - `is_add_signal` — "Aggiungo un'altra operazione" (lotto dimezzato)
 - `inherit_from_first` — secondo trade senza SL/TP copia dal primo
+
+---
+
+## Archivio segreti (DPAPI)
+
+Le API key e le password live sono cifrate con Windows DPAPI in
+`C:\TG_TradinGo\secrets\store.dpapi`. Documentazione completa: `docs/SECRETS.md`.
+
+Comandi rapidi:
+
+```powershell
+# Verifica che tutte le chiavi richieste siano presenti
+python C:\TG_TradinGo\secrets_store.py export-check
+
+# Aggiungere/ruotare una chiave
+python C:\TG_TradinGo\secrets_store.py set NOME_CHIAVE
+
+# Elenco chiavi (senza valori)
+python C:\TG_TradinGo\secrets_store.py list
+```
+
+I file `tradingo_config.example.json` e `webapp_config.example.json` usano
+`"@secrets"` come valore nei campi sensibili: il bridge sostituisce il sentinel
+con il valore letto dall'archivio a runtime.
 
 ---
 

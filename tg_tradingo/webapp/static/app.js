@@ -7,6 +7,13 @@ function dot(status) {
   return `<span class="dot ${cls}"></span>`;
 }
 
+function fmtDateTs(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d)) return ts;
+  return d.toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function fmtTs(ts) {
   if (!ts) return "—";
   const d = new Date(ts);
@@ -34,7 +41,7 @@ function esc(s) {
 }
 
 function renderLights(lights) {
-  const order = ["bridge", "mt5_local", "friend_link", "friend_heartbeat"];
+  const order = ["bridge", "mt5_local"];
   const html = order
     .filter((k) => lights[k])
     .map((k) => {
@@ -137,12 +144,26 @@ function renderAccounts(accounts) {
   $("accounts").innerHTML = html || '<div class="card">Nessun conto configurato</div>';
 }
 
+function fmtPips(v) {
+  const n = Number(v || 0);
+  return (n > 0 ? "+" : "") + n.toFixed(0) + " pips";
+}
+
+function channelRankValue(ch) {
+  const p30 = (ch.pnl && ch.pnl.d30) || {};
+  return Number(p30.pnl_norm || 0);
+}
+
 function renderChannels(channels) {
   const html = (channels || [])
-    .map((ch) => {
+    .filter((ch) => ch.enabled !== false)
+    .slice()
+    .sort((a, b) => channelRankValue(b) - channelRankValue(a))
+    .map((ch, i) => {
       const t = ch.today || {};
-      const p = (ch.pnl && ch.pnl.today) || { pnl: 0, trades: 0, win_rate: null };
-      const p7 = (ch.pnl && ch.pnl.d7) || { pnl: 0, trades: 0 };
+      const p = (ch.pnl && ch.pnl.today) || { pnl: 0, pnl_norm: 0, pips: 0, signals: 0 };
+      const p7 = (ch.pnl && ch.pnl.d7) || { pnl: 0, pnl_norm: 0, pips: 0 };
+      const p30 = (ch.pnl && ch.pnl.d30) || { pnl: 0, pnl_norm: 0, pips: 0, signals: 0, signal_win_rate: null };
       const ex = ch.exec || { executed: 0, cancelled: 0 };
       const last = ch.last_emitted || ch.last_event;
       const lastHtml = last
@@ -152,27 +173,64 @@ function renderChannels(channels) {
              ${esc(last.outcome || "")}<br>${esc(last.raw_text || "")}
            </div>`
         : `<div class="lastmsg">Nessun evento bridge oggi</div>`;
-      return `<div class="card channel-card">
+      return `<div class="card channel-card clickable" onclick="loadChannel('${esc(ch.id)}', 30)">
         <div class="head">
-          <span class="name ${ch.enabled ? "" : "disabled"}">${esc(ch.name)}</span>
+          <span class="name">#${i + 1} ${esc(ch.name)}</span>
           <span class="badge">${esc(ch.id)}</span>
         </div>
         <div class="pnl-row">
-          <span class="pnl-big ${pnlClass(p.pnl)}">${fmtMoney(p.pnl)}</span>
-          <span class="pnl-meta">oggi · ${p.trades || 0} chiusi
-            ${p.win_rate != null ? " · WR " + p.win_rate + "%" : ""}</span>
+          <span class="pnl-big ${pnlClass(p30.pnl_norm)}">${fmtMoney(p30.pnl_norm)}</span>
+          <span class="pnl-meta">30g a 0.01 lotti · ${p30.signals || 0} segnali
+            ${p30.signal_win_rate != null ? " · WR " + p30.signal_win_rate + "%" : ""}
+            · ${fmtPips(p30.pips)}</span>
         </div>
         <div class="counts">
-          <span>7g <b class="${pnlClass(p7.pnl)}">${fmtMoney(p7.pnl)}</b></span>
-          <span class="em">Segnali <b>${t.emitted ?? 0}</b></span>
+          <span>Oggi <b class="${pnlClass(p.pnl_norm)}">${fmtMoney(p.pnl_norm)}</b></span>
+          <span>7g <b class="${pnlClass(p7.pnl_norm)}">${fmtMoney(p7.pnl_norm)}</b> · <b class="${pnlClass(p7.pips)}">${fmtPips(p7.pips)}</b></span>
+          <span class="raw">Reale 30g <b class="${pnlClass(p30.pnl)}">${fmtMoney(p30.pnl)}</b></span>
+        </div>
+        <div class="counts">
+          <span class="em">Segnali oggi <b>${t.emitted ?? 0}</b></span>
           <span>Eseguiti <b>${ex.executed ?? 0}</b></span>
-          <span class="er">Annullati <b>${ex.cancelled ?? 0}</b></span>
         </div>
         ${lastHtml}
       </div>`;
     })
     .join("");
-  $("channels").innerHTML = html || '<div class="card">Nessun canale configurato</div>';
+  $("channels").innerHTML = html || '<div class="card">Nessun canale attivo</div>';
+}
+
+function renderSertorio(sz) {
+  const el = $("sertorio");
+  if (!el) return;
+  if (!sz || !sz.analysis) {
+    el.innerHTML = '<div class="card">Nessuna analisi Sertorio interpretata</div>';
+    return;
+  }
+  const a = sz.analysis;
+  const zones = (a.zones || []).slice().sort((x, y) => y.hi - x.hi);
+  const zoneRow = (z) => `<tr><td>${z.kind === "resistance" ? "🔴" : "🟢"} ${z.lo === z.hi ? z.lo : z.lo + " – " + z.hi}${z.key ? " 🔑" : ""}</td><td class="muted">${esc(z.note || "")}</td></tr>`;
+  const setupRow = (s, status) => `<tr><td><b class="${s.direction === "BUY" ? "pos" : "neg"}">${s.direction}</b> ${s.entry_lo === s.entry_hi ? s.entry_lo : s.entry_lo + "–" + s.entry_hi}</td>
+      <td>SL ${s.sl}</td><td>TP ${(s.tps || []).join(" / ")}</td><td class="muted">${esc(status)}</td></tr>`;
+  const pendingIds = new Set((sz.pending || []).map((p) => p.id));
+  const openIds = new Set((sz.open || []).map((o) => o.setup_id));
+  const statusOf = (s) => openIds.has(s.id) ? "APERTO (virtuale)" : pendingIds.has(s.id) ? "in attesa del tocco" : (sz.shadow_updated_utc ? "chiuso/scaduto" : "monitor spento");
+  const st7 = sz.stats_7d || {}, st30 = sz.stats_30d || {};
+  const closedRows = (sz.closed || []).slice(0, 12).map((c) => `<tr><td>${fmtDateTs(c.close_ts)}</td><td>${esc(c.direction)} T${c.tp_index}</td><td>${c.fill} → ${c.close}</td><td>${esc(c.reason)}</td><td class="${pnlClass(c.pips)}">${fmtPips(c.pips)}</td></tr>`).join("");
+  el.innerHTML = `<div class="card">
+      <div class="head"><span class="name">${esc(a.symbol || "XAUUSD")} · analisi ${fmtDateTs(sz.ts_utc)}</span>
+        <span class="badge">${sz.shadow ? "SHADOW" : "LIVE"}</span></div>
+      <div class="counts"><span>Bias long <b>${a.bias_long_pct ?? "–"}%</b></span><span>Livello chiave <b>${a.key_level ?? "–"}</b></span><span>Prezzo <b>${a.current_price ?? "–"}</b></span></div>
+      <div class="lastmsg">${esc(a.summary || "")}</div>
+      <table class="events"><tbody>${zones.map(zoneRow).join("")}</tbody></table>
+    </div>
+    <div class="card">
+      <div class="head"><span class="name">Setup condizionali</span>
+        <span class="pnl-meta">7g <b class="${pnlClass(st7.pips)}">${fmtPips(st7.pips || 0)}</b> (${st7.legs || 0} gambe) · 30g <b class="${pnlClass(st30.pips)}">${fmtPips(st30.pips || 0)}</b> (${st30.legs || 0})</span></div>
+      <table class="events"><tbody>${(sz.setups || []).map((s) => setupRow(s, statusOf(s))).join("") || "<tr><td>nessun setup</td></tr>"}</tbody></table>
+      <div class="muted" style="margin-top:6px">Ultime chiusure virtuali</div>
+      <table class="events"><tbody>${closedRows || "<tr><td>—</td></tr>"}</tbody></table>
+    </div>`;
 }
 
 function renderOpens(accounts) {
@@ -216,10 +274,6 @@ function renderEvents(events) {
 async function refresh() {
   try {
     const res = await fetch("/api/status", { cache: "no-store" });
-    if (res.status === 401) {
-      location.href = "/login";
-      return;
-    }
     const data = await res.json();
     $("overall").className = `overall-dot dot ${data.overall || "off"}`;
     $("updated").textContent = "agg. " + fmtTs(data.generated_utc);
@@ -231,10 +285,73 @@ async function refresh() {
     renderAccounts(accounts);
     renderChannels(data.channels || []);
     renderOpens(accounts);
+    renderSertorio(data.sertorio);
     renderEvents(data.events || []);
   } catch (err) {
     $("updated").textContent = "offline?";
     $("overall").className = "overall-dot dot crit";
+  }
+}
+
+let _currentChannelId = null;
+
+async function loadChannel(channelId, days) {
+  if (channelId) _currentChannelId = channelId;
+  if (!_currentChannelId) return;
+  days = days || 30;
+  const modal = $("ch-modal");
+  const title = $("ch-modal-title");
+  const summary = $("ch-modal-summary");
+  const tbody = $("ch-modal-table").querySelector("tbody");
+  // Aggiorna pulsanti periodo attivi
+  modal.querySelectorAll(".modal-period button").forEach((btn) => {
+    btn.classList.toggle("active", btn.textContent.startsWith(String(days)));
+  });
+  title.textContent = _currentChannelId.replace("CH_", "") + " — ultimi " + days + "g";
+  modal.style.display = "flex";
+  tbody.innerHTML = '<tr><td colspan="9" class="raw">Caricamento…</td></tr>';
+  summary.textContent = "";
+  try {
+    const res = await fetch(`/api/channel/${encodeURIComponent(_currentChannelId)}?days=${days}`, { cache: "no-store" });
+    const data = await res.json();
+    const trades = data.trades || [];
+    if (!trades.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="raw">Nessuna trade nel periodo</td></tr>';
+      summary.textContent = "";
+      return;
+    }
+    const totalPnl = trades.reduce((s, t) => s + Number(t.profit_usd || 0), 0);
+    const totalNorm = trades.reduce((s, t) => s + Number(t.pnl_norm || 0), 0);
+    const bySignal = {};
+    trades.forEach((t) => {
+      const k = t.signal_id || t.ts_utc;
+      bySignal[k] = (bySignal[k] || 0) + Number(t.profit_usd || 0);
+    });
+    const sigs = Object.values(bySignal);
+    const wins = sigs.filter((v) => v > 0).length;
+    summary.innerHTML = `<span>Segnali: <b>${sigs.length}</b> (${trades.length} TP)</span>
+      <span>P&amp;L a 0.01: <b class="${pnlClass(totalNorm)}">${fmtMoney(totalNorm)}</b></span>
+      <span>Reale: <b class="${pnlClass(totalPnl)}">${fmtMoney(totalPnl)}</b></span>
+      <span>Win rate: <b>${sigs.length ? Math.round((wins / sigs.length) * 100) : 0}%</b></span>`;
+    tbody.innerHTML = trades.map((t) => `<tr>
+      <td class="ts">${fmtTs(t.ts_utc)}</td>
+      <td>${esc(t.symbol || "")}</td>
+      <td class="${(t.direction||"").toLowerCase() === "buy" ? "pos" : "neg"}">${esc(t.direction || "")}</td>
+      <td>${esc(String(t.volume ?? ""))}</td>
+      <td class="${pnlClass(Number(t.pips))}">${fmtPips(t.pips)}</td>
+      <td class="${pnlClass(Number(t.pnl_norm))}">${fmtMoney(Number(t.pnl_norm))}</td>
+      <td class="${pnlClass(Number(t.profit_usd))} raw">${fmtMoney(Number(t.profit_usd))}</td>
+      <td class="raw">${esc(t.close_reason || "")}${t.source === "theory" ? " <small>(teorico)</small>" : ""}</td>
+      <td class="raw">${esc(t.account || "")}</td>
+    </tr>`).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="9" class="raw">Errore: ${esc(String(e))}</td></tr>`;
+  }
+}
+
+function closeModal(event) {
+  if (event.target === $("ch-modal")) {
+    $("ch-modal").style.display = "none";
   }
 }
 

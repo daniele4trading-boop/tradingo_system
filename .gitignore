@@ -46,3 +46,7 @@ C:\\TG_TradinGo\\journal/
 
 # accounts MT5 StatArb (credenziali)
 accounts.json
+
+# Archivio segreti DPAPI (mai versionare)
+tg_tradingo/secrets/
+*.dpapi

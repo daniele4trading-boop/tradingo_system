@@ -131,6 +131,54 @@ def load_trades_range(
     return rows
 
 
+def apply_channel_overrides(
+    rows: list[dict],
+    overrides: list[dict] | None,
+    days: int,
+    magic_map: dict[int, str] | None = None,
+) -> list[dict]:
+    """Sostituisce, per un canale, le gambe reali con quelle di un CSV esterno (stesso
+    formato trades_*.csv) fino alla data `until` (UTC, esclusa).
+
+    Uso: canale IVAN prima dell'1/11/2026 = gambe "teoriche" (simulazione sui messaggi
+    di Ivan, senza i bug di bridge/EA); dopo `until` tornano le gambe reali del conto.
+    override = {"channel": "CH_IVAN", "csv": "path", "until": "2026-11-01"}
+    """
+    if not overrides:
+        return rows
+    now = datetime.now(timezone.utc)
+    cutoff_days = (now - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    out = list(rows)
+    for ov in overrides:
+        ch_id = ov.get("channel")
+        until = ov.get("until") or ""
+        path = ov.get("csv")
+        if not ch_id or not path:
+            continue
+
+        def _before_until(r: dict) -> bool:
+            ts = r.get("close_time_utc") or r.get("ts_utc") or ""
+            return bool(until) and ts[:10] < until
+
+        out = [
+            r
+            for r in out
+            if not (
+                normalize_channel(r.get("channel") or r.get("channel_id"), magic=r.get("magic"), magic_map=magic_map) == ch_id
+                and _before_until(r)
+            )
+        ]
+        for r in _timed_read_csv(Path(path)):
+            ts = r.get("close_time_utc") or r.get("ts_utc") or ""
+            if ts[:10] < cutoff_days or (until and ts[:10] >= until):
+                continue
+            r["channel"] = ch_id
+            r["magic"] = ""  # il magic del CSV esterno non deve rimappare il canale
+            r["source"] = "theory"
+            out.append(r)
+    return out
+
+
 def load_equity_range(
     equity_dir: Path, days: int, start_date: str | None = None
 ) -> list[dict]:
@@ -165,7 +213,60 @@ def _empty_bucket() -> dict[str, Any]:
         "losses": 0,
         "win_rate": None,
         "volume": 0.0,
+        "pnl_norm": 0.0,
+        "pips": 0.0,
+        "signals": 0,
+        "signal_wins": 0,
+        "signal_win_rate": None,
+        "_sig": {},
     }
+
+
+NORM_LOT = 0.01
+
+
+def pip_size(symbol: str | None) -> float:
+    """Pip convenzionale = 10 point: XAU 0.1, JPY 0.01, forex 0.0001.
+
+    BTC/ETH: pip omogeneo all'oro in valore. Oro 100 oz/lotto -> 1 pip (0,1 $) = 10 $/lotto;
+    BTC 1 BTC/lotto -> 10 $/lotto = 10 $ di prezzo. Quindi 100 pips = 10 $ a 0,01 lotti
+    su entrambi.
+    """
+    s = (symbol or "").upper()
+    if s.startswith(("XAU", "GOLD")):
+        return 0.1
+    if s.startswith(("XAG", "SILVER")):
+        return 0.01
+    if s.startswith(("BTC", "ETH")):
+        return 10.0
+    if "JPY" in s:
+        return 0.01
+    return 0.0001
+
+
+def trade_pips(row: dict) -> float:
+    """Pips realizzati (positivi se in guadagno) da prezzo di ingresso e chiusura."""
+    entry = _f(row, "fill", "entry_price", "req_entry")
+    close = _f(row, "close_price")
+    if not entry or not close:
+        return 0.0
+    move = close - entry
+    if (row.get("direction") or "").upper() == "SELL":
+        move = -move
+    return move / pip_size(row.get("symbol"))
+
+
+def _signal_key(row: dict) -> str:
+    return str(row.get("signal_id") or row.get("ticket") or id(row))
+
+
+def signal_volumes(trades: list[dict]) -> dict[str, float]:
+    """Volume totale chiuso per segnale (somma dei TP)."""
+    out: dict[str, float] = defaultdict(float)
+    for row in trades:
+        if (row.get("event") or "").upper() == "CLOSE":
+            out[_signal_key(row)] += _f(row, "volume")
+    return out
 
 
 def _finalize_bucket(b: dict[str, Any]) -> dict[str, Any]:
@@ -173,11 +274,21 @@ def _finalize_bucket(b: dict[str, Any]) -> dict[str, Any]:
     b["pnl"] = round(b["pnl"], 2)
     b["volume"] = round(b["volume"], 2)
     b["win_rate"] = round(100.0 * b["wins"] / n, 1) if n else None
+    sig = b.pop("_sig", {})
+    b["signals"] = len(sig)
+    b["signal_wins"] = sum(1 for v in sig.values() if v > 0)
+    b["signal_win_rate"] = round(100.0 * b["signal_wins"] / len(sig), 1) if sig else None
+    b["pnl_norm"] = round(b["pnl_norm"], 2)
+    b["pips"] = round(b["pips"], 1)
     return b
 
 
 def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map: dict[int, str] | None = None) -> dict[str, Any]:
-    """Per-channel closed PnL for each lookback window (1=today, 7, 30)."""
+    """Per-channel closed PnL for each lookback window (1=today, 7, 30).
+
+    `pips` = somma dei pips realizzati da ogni gamba chiusa (non pesata per volume);
+    `pnl_norm` = P&L riportato a un segnale da NORM_LOT lotti.
+    """
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
 
@@ -186,6 +297,7 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map:
         lambda: {f"d{d}": _empty_bucket() for d in windows_days}
     )
     totals = {f"d{d}": _empty_bucket() for d in windows_days}
+    sig_vol = signal_volumes(trades)
 
     for row in trades:
         ev = (row.get("event") or "").upper()
@@ -202,6 +314,12 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map:
         age_days = (now.date() - ts.date()).days
         ch = normalize_channel(row.get("channel") or row.get("channel_id"), magic=row.get("magic"), magic_map=magic_map)
         vol = _f(row, "volume")
+        # Peso del TP nel segnale: P&L riportato a un segnale da NORM_LOT lotti.
+        # I pips sono invece la somma reale di ogni gamba, indipendente dalla size.
+        key = _signal_key(row)
+        svol = sig_vol.get(key) or vol
+        pnl_norm = pnl * NORM_LOT / svol if svol > 0 else 0.0
+        pips = trade_pips(row)
 
         for d in windows_days:
             if age_days >= d:
@@ -214,6 +332,9 @@ def summarize_closed_pnl(trades: list[dict], windows_days: list[int], magic_map:
                 bucket["pnl"] += pnl
                 bucket["trades"] += 1
                 bucket["volume"] += vol
+                bucket["pnl_norm"] += pnl_norm
+                bucket["pips"] += pips
+                bucket["_sig"][key] = bucket["_sig"].get(key, 0.0) + pnl
                 if pnl > 0:
                     bucket["wins"] += 1
                 elif pnl < 0:
@@ -348,6 +469,7 @@ def build_phase2(
     equity_days: int = 3,
     start_date: str | None = None,
     magic_map: dict[int, str] | None = None,
+    channel_overrides: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Full Phase-2 payload for the dashboard API."""
     root = Path(ea_journal_dir) if ea_journal_dir else None
@@ -365,6 +487,7 @@ def build_phase2(
     trades = (
         load_trades_range(trades_dir, lookback_days, start_date) if trades_dir else []
     )
+    trades = apply_channel_overrides(trades, channel_overrides, lookback_days, magic_map)
     # For open positions we need enough history that an OPEN from days ago still shows
     equity_rows = (
         load_equity_range(equity_dir, equity_days, start_date) if equity_dir else []

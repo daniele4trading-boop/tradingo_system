@@ -843,6 +843,22 @@ class TestCH4SalaStark:
         assert sig["inherit_from_first"] is False
         assert sig["sl"] == 1.358
 
+    def test_open_single_tp_without_number(self):
+        # Formato dal 9/10/2026: un solo "TP:" senza indice (12/10 aperti senza TP).
+        text = (
+            "Apro una nuova operazione 🚀\n"
+            "**XAUUSD** **SELL**\n"
+            "Entry: **4185.78**\n"
+            "SL: `4189.58`\n"
+            "TP: `4183.08`"
+        )
+        sig = parser_sala_stark(text, CH4)
+        assert sig["action"] == "OPEN"
+        assert sig["direction"] == "SELL"
+        assert sig["sl"] == 4189.58
+        assert sig["tp_levels"] == [4183.08]
+        assert sig["entry"] == 4185.78
+
     def test_flat_forex_open(self):
         text = "BUY   GBPUSD 1.35864\nSL    1.31230\nTP    1.36050"
         sig = parser_sala_stark(text, CH4)

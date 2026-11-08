@@ -1,7 +1,7 @@
 ; TG TradinGo EA 2.30 - Agora Funds 50k (Mixed) sul terminale Ultima, server BlueChipBroker-Server
 ; Regole Agora: DD giornaliero 4% da max(saldo,equity) al reset 17:00 New York; DD massimo 6% trailing sul massimo di fine giornata.
 ; Margini: giornaliero blocca nuovi a 3% e chiude tutto a 3.5% (scelta Daniele); massimo blocca a 3% e chiude a 4.2% (70% di 3000).
-; Solo IVAN a 0.01 per posizione (4 TP = 0.04). TITANY gira sullo stesso conto: l'equity include le sue posizioni, i guard chiudono solo le posizioni TG.
+; IVAN a 0.01 per posizione (4 TP = 0.04) + Hybrid Gold/Forex a 0.02 per gamba (dal 1/11). TITANY gira sullo stesso conto: l'equity include le sue posizioni, i guard chiudono solo le posizioni TG.
 ;   - InpMagicOffset=0  (con 500000 l'EA perderebbe di vista le posizioni gia' aperte)
 ;   - InpMaxFloatingLossUSD=0  (killswitch flottante spento su entrambi i demo)
 ; Regole simulate: equity di partenza 10.000 -> floor 9.400 (DD 6% statico)
@@ -13,7 +13,7 @@
 
 InpSignalsPath=tradingo\
 InpUseAbsolutePath=false
-InpChannels=ivan
+InpChannels=ivan,hybridgold,hybridfx
 InpSymbolSuffix=.ago
 InpLotMultiplier=1.0
 InpAddLotFactor=0.5
@@ -22,11 +22,15 @@ InpLotStark=0.0
 InpLotGold=0.0
 InpLotOro=0.0
 InpLotForex=0.0
+InpLotHybridGold=0.02
+InpLotHybridFx=0.02
 InpTagIvan=IT
 InpTagStark=AS
 InpTagGold=
 InpTagOro=
 InpTagForex=
+InpTagHybridGold=HG
+InpTagHybridFx=HF
 InpCommentUseTgPrefix=false
 InpMaxSlippagePoints=50
 InpPollMs=500
@@ -64,6 +68,8 @@ InpDdFloatStark=10.4
 InpDdFloatGold=15.0
 InpDdFloatOro=12.4
 InpDdFloatForex=20.0
+InpDdFloatHybridGold=15.0
+InpDdFloatHybridFx=20.0
 InpMaxConcurrentLots=0.08
 InpDdDailyPct=4.0
 InpDdDailyCloseAtPct=87.5

@@ -15,10 +15,9 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import (
@@ -34,9 +33,9 @@ _BASE_DIR = _PKG_DIR.parent
 if str(_BASE_DIR) not in sys.path:
     sys.path.insert(0, str(_BASE_DIR))
 
-from webapp.admin_mgr import AdminManager  # noqa: E402
-from webapp.auth import RateLimiter, SessionManager, verify_password  # noqa: E402
-from webapp.collector import Collector  # noqa: E402
+from webapp.admin_mgr import AdminManager
+from webapp.auth import RateLimiter, SessionManager, verify_password
+from webapp.collector import Collector
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("TradinGoWeb")
@@ -70,8 +69,23 @@ def _session_hours(cfg: dict) -> float:
     return float(cfg.get("session_hours", 180 * 24))
 
 
+def _resolve_secret_key() -> str:
+    try:
+        from secrets_store import store as _ss
+    except ImportError:
+        try:
+            from tg_tradingo.secrets_store import store as _ss  # type: ignore[no-redef]
+        except ImportError:
+            _ss = None  # type: ignore[assignment]
+    if _ss:
+        val = _ss.get("WEBAPP_SECRET_KEY")
+        if val:
+            return val
+    return CONFIG.get("secret_key", "")
+
+
 sessions = SessionManager(
-    CONFIG.get("secret_key", ""),
+    _resolve_secret_key(),
     hours=_session_hours(CONFIG),
 )
 limiter = RateLimiter(
@@ -96,7 +110,7 @@ def _is_https(request: Request) -> bool:
 def _set_session_cookie(resp, request: Request, token: str) -> None:
     """Persist session on iOS Safari (esp. via Tailscale HTTPS Serve)."""
     secure = _is_https(request)
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=sessions.ttl_sec)
+    expires_at = datetime.now(UTC) + timedelta(seconds=sessions.ttl_sec)
     resp.set_cookie(
         COOKIE_NAME,
         token,
@@ -146,8 +160,6 @@ def require_admin(request: Request) -> str | None:
 
 @app.get("/")
 def index(request: Request):
-    if not current_user(request):
-        return RedirectResponse("/login", status_code=302)
     return FileResponse(_PKG_DIR / "static" / "index.html")
 
 
@@ -214,7 +226,7 @@ def login(request: Request, username: str = Form(""), password: str = Form(""), 
 
 @app.get("/logout")
 def logout(request: Request):
-    resp = RedirectResponse("/login", status_code=302)
+    resp = RedirectResponse("/", status_code=302)
     resp.delete_cookie(
         COOKIE_NAME,
         path="/",
@@ -225,11 +237,8 @@ def logout(request: Request):
 
 @app.get("/api/status")
 def api_status(request: Request):
-    user = current_user(request)
-    if not user:
-        return JSONResponse({"error": "non autenticato"}, status_code=401)
     snap = collector.snapshot()
-    snap["user"] = user
+    snap["user"] = current_user(request)
     return JSONResponse(snap)
 
 
@@ -308,6 +317,12 @@ def api_admin_withdrawal_delete(request: Request, w_id: str):
         return JSONResponse({"error": "non autorizzato"}, status_code=403)
     admin_mgr.delete_withdrawal(w_id)
     return JSONResponse({"ok": True})
+
+
+@app.get("/api/channel/{channel_id}")
+def api_channel_detail(channel_id: str, days: int = 30):
+    trades = collector.channel_trades(channel_id.upper(), min(max(days, 1), 365))
+    return JSONResponse({"channel_id": channel_id, "days": days, "trades": trades})
 
 
 def main() -> None:
