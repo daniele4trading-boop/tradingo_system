@@ -1,7 +1,7 @@
 {
   "telegram": {
-    "api_id": 0,
-    "api_hash": "INSERISCI_API_HASH_TELEGRAM",
+    "api_id": "@secrets",
+    "api_hash": "@secrets",
     "session_file": "C:\\TelegramBridge\\telegram_bridge_session.session"
   },
   "paths": {
@@ -98,8 +98,8 @@
     {
       "id": "CH_IVAN",
       "enabled": false,
-      "telegram_id": -1002112242007,
-      "name": "IvanTrades - VIP",
+      "telegram_id": -1004475607491,
+      "name": "IvanTrades - VIP 2.0",
       "parser": "ivan_vip",
       "signal_file": "signal_ch_ivan.json",
       "magic_base": 17000,
@@ -174,11 +174,29 @@
       "enabled": false,
       "telegram_id": -1003871039877,
       "name": "Matteo Sertorio - Canale pubblico",
-      "parser": "placeholder",
+      "parser": "sertorio_zones",
       "signal_file": "signal_ch_sertorio.json",
-      "magic_base": null,
+      "magic_base": 18000,
+      "interpreter": {
+        "enabled": true,
+        "model": "claude-sonnet-4-5",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "max_tokens": 1500,
+        "notes": "Analisi -> zone/idee strutturate (fallback parser regex se il modello non risponde)."
+      },
+      "setups": {
+        "shadow": true,
+        "live_instances": ["Vantage"],
+        "live_lot": 0.01,
+        "use_ideas": true,
+        "derive_from_zones": false,
+        "sl_buffer": 5.0,
+        "max_tps": 3,
+        "expire_utc_hour": 21,
+        "notes": "Setup a tocco dalle idee LONG/SHORT dell'analisi. shadow=true: nessun ordine. shadow=false: tools/sertorio_shadow.py scrive OPEN solo nei signals_path delle mt5_instances in live_instances (lotto dal preset InpLotSertorio); il libro virtuale continua in parallelo."
+      },
       "execution": {
-        "notes": "Solo analisi: nessun segnale, livelli per TG_TradinGoLevels."
+        "notes": "Livelli per TG_TradinGoLevels + zone/setup shadow. Nessun segnale reale finché setups.shadow=true."
       }
     }
   ],

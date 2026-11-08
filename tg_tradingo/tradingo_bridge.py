@@ -11,24 +11,22 @@ CANALI:
 
 import asyncio
 import json
+import logging
 import math
 import os
 import re
 import sys
 import time
-import logging
 import traceback
 import unicodedata
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from telethon import TelegramClient, events
-
+import sertorio_zones
 from bridge_core import (
     BridgeState,
     ProcessedMessageStore,
     apply_lot_rules,
-    atomic_write_text,
     atomic_write_text_timed,
     is_unc_path,
     make_signal_id,
@@ -40,8 +38,9 @@ from bridge_core import (
     match_partial_close_intent,
     match_selective_be_intent,
     match_selective_close_intent,
-    salvage_incoherent_entry_range,
     payload_for_ea,
+    resolve_telegram_credentials,
+    salvage_incoherent_entry_range,
     validate_signal,
 )
 from bridge_journal import append_bridge_event, write_heartbeat
@@ -53,6 +52,7 @@ from ivan_interpreter import (
     interpretation_to_signal,
     is_urgent,
 )
+from telethon import TelegramClient, events
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -75,7 +75,7 @@ def load_config():
 
 CONFIG = load_config()
 
-BRIDGE_VERSION = "2.33"
+BRIDGE_VERSION = "2.37"
 HEARTBEAT_INTERVAL_SEC = 30
 JOURNAL_RETENTION_DAYS = 90
 
@@ -129,7 +129,7 @@ def get_mt5_paths():
     return [i["signals_path"] for i in CONFIG.get("mt5_instances", []) if i.get("enabled", True)]
 
 def write_signal(channel_cfg: dict, signal: dict, meta: dict | None = None):
-    signal["timestamp"]    = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    signal["timestamp"]    = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     signal["channel_id"]   = channel_cfg["id"]
     signal["channel_name"] = channel_cfg["name"]
     written_targets: list[str] = []
@@ -176,7 +176,7 @@ def write_signal(channel_cfg: dict, signal: dict, meta: dict | None = None):
             log.info(f"[{channel_cfg['id']}] -> {out_file.name} | "
                      f"action={signal.get('action')} symbol={signal.get('symbol','')} "
                      f"dir={signal.get('direction','')} sid={signal.get('signal_id','')}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"[{channel_cfg['id']}] Errore scrittura {out_file}: {e}")
             # Keep going: Contabo local must succeed even if Gamehosting share hangs.
             continue
@@ -291,7 +291,7 @@ def strip_md(text: str) -> str:
     # Rimuove markdown
     text = re.sub(r"[*`_]", " ", text)
     # Rimuove caratteri zero-width e spazi non-breaking invisibili
-    text = re.sub(r"[​‌‍‎‏﻿ ⁠]", " ", text)
+    text = re.sub("[\u200B\u200C\u200D\u200E\u200F\uFEFF\u00A0\u2060]", " ", text)
     # Normalizza spazi multipli
     text = re.sub(r"  +", " ", text)
     return text
@@ -3097,7 +3097,8 @@ def parser_ivan_btc(text: str, ch: dict, state: BridgeState | None = None) -> di
 #   "🟢BUY CHFJPY 190.128 / TP1 190.760 / TP2 191.420 / TP3 open / SL 189.500 (63 pips)"
 # Gestione = reply al segnale: "Noi anticipiamo il tp 1 qui", "Stop loss preso",
 # "Noi chiudiamo ora la posizione a 2.3R", "Break even preso". "Tp N preso" è solo
-# informativo (BE automatico nell'EA). Analisi e aggiornamenti: nessun segnale.
+# informativo (BE automatico nell'EA dopo la chiusura in profitto della gamba T1).
+# "Tp3: open" apre una gamba runner senza TP; l'EDIT del segnale aggiorna SL/TP. Analisi e aggiornamenti: nessun segnale.
 _HYBRID_OPEN_RE = re.compile(
     r"\b(BUY|SELL)\s+([A-Z]{6})(?:\.[A-Z]+)?\s+(\d+(?:[.,]\d+)?)\b")
 _HYBRID_PENDING_RE = re.compile(r"\b(?:BUY|SELL)\s+(?:LIMIT|STOP)\b")
@@ -3107,12 +3108,52 @@ _HYBRID_TRADES: dict[tuple[str, int], dict] = {}
 _HYBRID_LAST: dict[str, dict] = {}
 
 
+def hybrid_forget_signal(ch: dict, msg_id: int | None) -> None:
+    """Un OPEN Hybrid scartato dalla validazione (es. EURGBP 27/10: entry 0.73675
+    per refuso) non deve bloccare l'EDIT correttivo come "segnale già aperto"."""
+    if msg_id is None:
+        return
+    tag = ch.get("id", "HYBRID")
+    trade = _HYBRID_TRADES.pop((tag, int(msg_id)), None)
+    if trade is not None and _HYBRID_LAST.get(tag) is trade:
+        _HYBRID_LAST.pop(tag, None)
+
+
 def _hybrid_target(ch: dict, reply_to: int | None) -> dict | None:
     if reply_to is not None:
         t = _HYBRID_TRADES.get((ch["id"], int(reply_to)))
         if t:
             return t
     return _HYBRID_LAST.get(ch["id"])
+
+
+def _hybrid_edit_levels(ch: dict, trade: dict, direction: str, symbol: str,
+                        sl: float, tps: list[float], raw: str) -> dict | None:
+    """EDIT del messaggio di un segnale già aperto (4/11: SL 4058 -> 4052): solo
+    SL/TP nuovi alle posizioni aperte, mai una nuova apertura."""
+    tag = ch.get("id", "HYBRID")
+    if (direction, symbol) != (trade["direction"], trade["symbol"]):
+        log.warning(f"[{tag}] EDIT cambia {trade['direction']} {trade['symbol']} -> "
+                    f"{direction} {symbol} su un segnale già aperto, ignorato: {raw[:60]}")
+        return None
+    if sl == trade.get("sl") and tps == trade.get("tp_levels"):
+        log.info(f"[{tag}] EDIT senza cambi di SL/TP, ignorato: {raw[:60]}")
+        return None
+    log.info(f"[{tag}] EDIT livelli {symbol}: SL {trade.get('sl')} -> {sl}, "
+             f"TP {trade.get('tp_levels')} -> {tps}")
+    trade["sl"], trade["tp_levels"] = sl, tps
+    return {
+        "action":       "UPDATE_OPEN",
+        "levels_only":  True,
+        "direction":    direction,
+        "symbol":       symbol,
+        "entry":        trade["entry"],
+        "tp_levels":    tps,
+        "runner_legs":  trade.get("runner_legs", 0),
+        "sl":           sl,
+        "magic_base":   ch["magic_base"],
+        "raw_message":  raw,
+    }
 
 
 def parser_hybrid(text: str, ch: dict, state: BridgeState | None = None,
@@ -3127,31 +3168,37 @@ def parser_hybrid(text: str, ch: dict, state: BridgeState | None = None,
         if _HYBRID_PENDING_RE.search(upper):
             log.warning(f"[{tag}] Ordine pendente non supportato: {raw[:60]}")
             return None
-        if is_edit and msg_id is not None and (tag, int(msg_id)) in _HYBRID_TRADES:
-            log.info(f"[{tag}] EDIT di un segnale già aperto, ignorato: {raw[:60]}")
-            return None
         direction = m_open.group(1)
         symbol = normalize_symbol(m_open.group(2))
         entry = pf(m_open.group(3))
         sl = pf(_HYBRID_SL_RE.search(upper).group(1))
-        tps = [pf(v) for _, v in sorted(_HYBRID_TP_RE.findall(upper)) if v != "OPEN"]
+        tp_raw = sorted(_HYBRID_TP_RE.findall(upper))
+        tps = [pf(v) for _, v in tp_raw if v != "OPEN"]
         tps = [v for v in tps if v is not None]
+        # "Tp3: open": gamba runner senza TP (SL come le altre, BE dopo il TP1).
+        runner = 1 if tps and any(v == "OPEN" for _, v in tp_raw) else 0
         if entry is None or sl is None:
             return None
         if (direction == "BUY" and sl >= entry) or (direction == "SELL" and sl <= entry):
             log.warning(f"[{tag}] SL dal lato sbagliato, nessun segnale: {raw[:60]}")
             return None
-        trade = {"symbol": symbol, "direction": direction, "entry": entry}
+        known = _HYBRID_TRADES.get((tag, int(msg_id))) if is_edit and msg_id is not None else None
+        if known is not None:
+            return _hybrid_edit_levels(ch, known, direction, symbol, sl, tps, raw)
+        trade = {"symbol": symbol, "direction": direction, "entry": entry,
+                 "sl": sl, "tp_levels": tps, "runner_legs": runner}
         if msg_id is not None:
             _HYBRID_TRADES[(tag, int(msg_id))] = trade
         _HYBRID_LAST[tag] = trade
-        log.info(f"[{tag}] OPEN {direction} {symbol} @ {entry} TP={tps} SL={sl}")
+        log.info(f"[{tag}] OPEN {direction} {symbol} @ {entry} TP={tps}"
+                 f"{' +runner' if runner else ''} SL={sl}")
         return {
             "action":       "OPEN",
             "direction":    direction,
             "symbol":       symbol,
             "entry":        entry,
             "tp_levels":    tps,
+            "runner_legs":  runner,
             "sl":           sl,
             "magic_base":   ch["magic_base"],
             "raw_message":  raw,
@@ -3212,7 +3259,7 @@ def update_levels_safe(ch_cfg: dict, text: str) -> None:
             n = levels_extract.update_levels(Path(f), ch_cfg["id"], text, default_symbol=default)
         if n:
             log.info(f"[LEVELS] {ch_cfg['id']}: {n} livelli aggiornati")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         log.warning(f"[LEVELS] {ch_cfg.get('id')}: {exc}")
 
 
@@ -3226,6 +3273,7 @@ PARSERS = {
     "ivan_btc":   parser_ivan_btc,
     "hybrid":     parser_hybrid,
     "placeholder": lambda _t, _c: None,
+    "sertorio_zones": lambda _t, _c: None,  # analisi -> zone/setup shadow, nessun segnale
 }
 
 def get_parser(name: str):
@@ -3276,7 +3324,8 @@ async def run_bridge():
         icfg = InterpreterConfig.from_channel(cfg)
         if not icfg.enabled:
             continue
-        if not os.environ.get(icfg.api_key_env):
+        from secrets_store import store as _ss
+        if not _ss.get(icfg.api_key_env):
             log.warning(
                 f"  {cfg['id']} interpreter abilitato ma {icfg.api_key_env} assente: disattivato"
             )
@@ -3306,7 +3355,7 @@ async def run_bridge():
             if signal:
                 buf.mark_executed(now, describe_signal(signal))
             append_bridge_event(CONFIG, {
-                "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "channel_id": ch_cfg["id"],
                 "chat_id": cid,
                 "message_id": pending[-1],
@@ -3331,7 +3380,7 @@ async def run_bridge():
                 log.info(f"[IVAN_LLM] EMESSO {signal['action']} ({res.reason[:60]})")
         except asyncio.CancelledError:
             pass
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"[IVAN_LLM] errore: {e}\n{traceback.format_exc()}")
 
     def ivan_llm_schedule(cid: int, ch_cfg: dict, meta: dict, text: str):
@@ -3356,10 +3405,27 @@ async def run_bridge():
                     f.parent.mkdir(parents=True, exist_ok=True)
                 atomic_write_text_timed(f, json.dumps({"action": "NONE"}, indent=2))
                 log.info(f"Init: {f}")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 log.error(f"Init skipped {f}: {exc}")
 
+    tg_cfg = resolve_telegram_credentials(tg_cfg)
     client = TelegramClient(tg_cfg["session_file"], tg_cfg["api_id"], tg_cfg["api_hash"])
+
+    async def sertorio_analyze(ch_cfg: dict, text: str):
+        """Interprete analisi Sertorio fuori dal percorso dei segnali (mai bloccante)."""
+        try:
+            doc = await asyncio.to_thread(
+                sertorio_zones.handle_analysis, ch_cfg, text, STATE_DIR
+            )
+            if doc:
+                append_bridge_event(CONFIG, {
+                    "ts_utc": doc["ts_utc"], "channel_id": ch_cfg["id"],
+                    "chat_id": ch_cfg.get("telegram_id"), "event_type": "ANALYSIS",
+                    "raw_text": text[:200], "outcome": "ZONES_SHADOW" if doc["shadow"] else "ZONES",
+                    "payload": {"analysis_id": doc["analysis_id"], "setups": doc["setups"]},
+                })
+        except Exception as e:  # noqa: BLE001
+            log.error(f"[SZ] errore analisi: {e}\n{traceback.format_exc()}")
 
     async def process_message(event, is_edit: bool = False):
         """Handler condiviso per messaggi nuovi e modificati."""
@@ -3385,7 +3451,7 @@ async def run_bridge():
                     f"[{ch_cfg['id']}] Duplicato ignorato {event_type} id={message_id}"
                 )
                 append_bridge_event(CONFIG, {
-                    "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "channel_id": ch_cfg["id"],
                     "chat_id": int(chat_id),
                     "message_id": int(message_id),
@@ -3417,6 +3483,8 @@ async def run_bridge():
                         log.info(f"[CH2] EDIT con dati completi → forzo UPDATE_OPEN {direction}")
 
             update_levels_safe(ch_cfg, text)
+            if ch_cfg["parser"] == "sertorio_zones" and not is_edit:
+                asyncio.create_task(sertorio_analyze(ch_cfg, text))
 
             matched_ignore = matched_ignore_pattern(
                 ch_cfg["parser"], strip_md(text).upper()
@@ -3438,7 +3506,7 @@ async def run_bridge():
                     signal = parser(text, ch_cfg)
             except Exception as parse_exc:
                 append_bridge_event(CONFIG, {
-                    "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "channel_id": ch_cfg["id"],
                     "chat_id": int(chat_id),
                     "message_id": int(message_id),
@@ -3488,7 +3556,7 @@ async def run_bridge():
             if signal:
                 msg_date = getattr(event, "date", None)
                 telegram_date = (
-                    msg_date.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    msg_date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
                     if msg_date
                     else None
                 )
@@ -3514,7 +3582,7 @@ async def run_bridge():
                     )
                     processed_messages.mark_processed(dedup_key, *edit_alias)
                     append_bridge_event(CONFIG, {
-                        "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "channel_id": ch_cfg["id"],
                         "chat_id": int(chat_id),
                         "message_id": int(message_id),
@@ -3526,10 +3594,13 @@ async def run_bridge():
                         "payload": signal,
                         "targets": meta.get("written_targets") or [],
                     })
+                elif (ch_cfg["parser"] == "hybrid" and signal.get("action") in ("OPEN", "UPDATE_OPEN")
+                      and not signal.get("levels_only")):
+                    hybrid_forget_signal(ch_cfg, message_id)
             else:
                 outcome = "IGNORED_PATTERN" if matched_ignore else "UNPARSED"
                 append_bridge_event(CONFIG, {
-                    "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "ts_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "channel_id": ch_cfg["id"],
                     "chat_id": int(chat_id),
                     "message_id": int(message_id),
@@ -3540,7 +3611,7 @@ async def run_bridge():
                 })
                 log.debug(f"[{ch_cfg['id']}] Ignorato")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"Errore: {e}\n{traceback.format_exc()}")
 
     @client.on(events.NewMessage(chats=active_ids))
@@ -3554,7 +3625,7 @@ async def run_bridge():
     @client.on(events.Raw())
     async def on_raw(update):
         """Rileva ban da canali e lo segnala immediatamente."""
-        pass  # Gestito dal BanDetector sul logger Telethon
+        # Gestito dal BanDetector sul logger Telethon
 
     async def check_banned_channels():
         """Controlla periodicamente se siamo stati bannati da canali sconosciuti."""
@@ -3567,7 +3638,7 @@ async def run_bridge():
                 if eid and eid not in known_ids:
                     # Canale sconosciuto — non fa nulla ma lo monitoriamo
                     pass
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"[BAN CHECK] Errore: {e}")
 
     async with client:
@@ -3627,7 +3698,7 @@ def main():
         except KeyboardInterrupt:
             log.info("Stop manuale.")
             break
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"Crash: {e}\n{traceback.format_exc()}")
             log.info(f"Restart in {delay}s...")
             time.sleep(delay)

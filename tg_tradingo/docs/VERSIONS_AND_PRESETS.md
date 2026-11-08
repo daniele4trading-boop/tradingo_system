@@ -16,15 +16,19 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.33** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.34** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| Bridge Python | **2.34** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.36** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
 | EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
 
-**MT5 2.34 (bridge 2.33 invariato):** size per segnale. `InpLotPerSignal=true` → gli override `InpLot*` sono la size TOTALE del segnale, divisa sui TP e arrotondata per difetto allo step (0.40: 4 TP → 0.10, 3 TP → 0.13, 1 TP → 0.40); vale anche per gli slot riempiti da UPDATE_OPEN. Nuovo `InpLotIvanBtc`. Gli override ora rispettano il `lot_factor` del bridge ("piccole size" → ×0.5), prima ignorato. Preset: Vantage 0.40 a segnale su tutti i canali; Agorà IVAN 0.05 a TP (0.20 a segnale).
+**MT5 2.36 (Sertorio live su Vantage):** canale `sertorio` (`signal_ch_sertorio.json`, tag `SZ`, `InpLotSertorio`, `InpDdFloatSertorio`). I segnali li scrive `tools/sertorio_shadow.py` al tocco delle zone (`setups.shadow=false`, `live_instances=["Vantage"]`), non il bridge. Preset Vantage: `InpChannels` + `sertorio`, `InpLotSertorio=0.20`.
+
+**2.34 / MT5 2.35 (Hybrid):** (a) bridge: un OPEN Hybrid scartato dalla validazione (EURGBP 27/10: entry `0.73675` per refuso, TP incoerenti) viene dimenticato (`hybrid_forget_signal`), così l'EDIT correttivo del canale non è più "segnale già aperto" ma diventa `UPDATE_OPEN` e apre a mercato (con guard drift). (b) EA: `UPDATE_OPEN` annullato dal guard drift (`UPDATE_OPEN_CANCELLED`, >`InpUpdateOpenMaxDriftPctOfSl` della distanza SL) resta pendente per `InpRangeRetrySec` (300) e apre appena il prezzo rientra entro il drift massimo; scartato se tocca SL/TP1, scade o arriva un nuovo segnale sul canale (21/10 BUY 4130 e 27/10 BUY 4025: annullati a 46-48%, poi TP1/TP2). Preset Xlence e Ultima: `InpChannels` + `hybridgold,hybridfx`, `InpLotHybridGold/Fx=0.02` per gamba. Riportati in repo gli input della 2.34 che girava su Gamehosting dal 23/10 ma non erano mai arrivati su main: `InpLotIvanBtc`, `InpLotPerSignal` (lotto del preset = per segnale, diviso sulle gambe: Vantage 0.40 → 0.20 ×2 Hybrid), `lot_factor` dal JSON (`ChannelLotOverride`).
+
+**MT5 2.34:** BE con `be_price` = il più largo tra nostro fill e entry del canale (BUY: il più basso), mai più stretto del fill (28/10: fill 4033.26, entry 4036 → SL 4036 chiudeva T3/T4 prima di TP3/TP4); se l'entry è oltre `InpBeSignalEntryMaxGapPoints` (ora 200, era 500) dal fill lo SL si ferma a fill ∓ 200 pts. Rimosso `InpBeSignalEntryMaxLoss`. Preset IVAN aggiornati a 200. (2) `InpRangeRetrySec` (300): un OPEN/UPDATE_OPEN scartato dal guard off-market (`SIGNAL_CANCELLED`) resta in attesa (`RANGE_RETRY_PENDING`) e viene aperto appena il prezzo torna entro range+tolleranza (`RANGE_RETRY_EXECUTE`); scartato se il prezzo supera lo SL pubblicato o tocca TP1, allo scadere della finestra o all'arrivo di un nuovo segnale sullo stesso canale (`RANGE_RETRY_DROPPED`). 29/10: SELL 4028-4033 postato con prezzo 4025.5 (205-249 pts oltre i 200 di tolleranza), rientrato in zona poco dopo e poi a TP3.
 
 **2.33 / MT5 2.33:** interprete LLM (Anthropic) dei messaggi di gestione IVAN (`ivan_interpreter.py`, config canale `interpreter`, debounce 25 s sui messaggi consecutivi, modalità shadow/live); EA: con fill uguali "peggiori" = T2+T4 e "migliori" = T1+T3 per CHECK_AND_BE scope e CLOSE_SELECTIVE keep (prima BE su tutte / nessuna chiusura).
 
@@ -253,9 +257,9 @@ Tutti in `tg_tradingo/mql5/presets/`, si caricano da `Inputs → Load` sul chart
 
 | Preset | Conto | Guard DD | Sizing serbatoio | Canali | Note |
 |---|---|---|---|---|---|
-| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Gamehosting) | off | off | gold, forex, stark, ivan, ivanbtc | conto "misura i canali": riceve tutti i canali attivi, nessun guard altera i risultati; 0.40 a segnale su tutti i canali (`InpLotPerSignal`). ORO VIP dismesso (10/2026) |
+| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Gamehosting) | off | off | gold, forex, stark, ivan, ivanbtc | conto "misura i canali": riceve tutti i canali attivi, nessun guard altera i risultati. ORO VIP dismesso (10/2026) |
 | `TG_TradinGo_Ultima_iFunds_Demo.set` | Ultima demo (Gamehosting) | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | prova delle regole iFunds; `InpMagicOffset=0` per non perdere le posizioni già aperte |
-| `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 3%, chiusura 3,5%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.05 a TP (0.20 a segnale) | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
+| `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 3%, chiusura 3,5%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.01 | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
 | `TG_TradinGo_iFunds_10k_dd6.set` | iFunds 10k reale | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | `InpMagicOffset=500000` |
 | `TG_TradinGo_iFunds_50k_dd6.set` | iFunds 50k reale | 6%, start 50.000 → floor 47.000 | on, cap 0,25 | ivan, stark | scalata dopo il 10k |
 | `TG_TradinGo_Reale_Personale.set` | conti reali personali | 10%, equity catturata al primo attach | off | ivan, stark (da scegliere) | template: lotti, suffisso simbolo e % vanno adattati al broker |

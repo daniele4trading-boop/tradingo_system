@@ -1,4 +1,4 @@
-"""
+r"""
 TG TradinGo — Channel Signal Sampler
 Estrae gli ultimi 50 messaggi dai 4 canali operativi.
 Output: C:\TG_TradinGo\logs\signal_samples.txt
@@ -7,16 +7,21 @@ Output: C:\TG_TradinGo\logs\signal_samples.txt
 import asyncio
 import json
 import os
+import sys as _sys
 from datetime import datetime
 from pathlib import Path
+
 from telethon import TelegramClient
+
+_sys.path.insert(0, os.path.dirname(__file__))
+from bridge_core import resolve_telegram_credentials
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "tradingo_config.json")
 
 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
 
-TG      = CONFIG["telegram"]
+TG      = resolve_telegram_credentials(CONFIG["telegram"])
 LOG_DIR = Path(CONFIG["paths"]["logs"])
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 OUT_FILE = LOG_DIR / "signal_samples.txt"
@@ -77,7 +82,7 @@ async def dump():
 
                 log(f"  Totale messaggi con testo: {count}")
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log(f"  ERRORE: {e}")
 
         log()

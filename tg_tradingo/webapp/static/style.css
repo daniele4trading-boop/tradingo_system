@@ -175,6 +175,7 @@ footer {
 /* ── equity / pnl (fase 2) ── */
 
 .grid.accounts { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.grid.sertorio { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
 
 .account-card .head {
   display: flex;
@@ -401,3 +402,5 @@ footer {
 /* Canali cliccabili */
 .channel-card.clickable { cursor: pointer; }
 .channel-card.clickable:hover { border-color: #d4af37; transform: translateY(-1px); transition: transform .1s, border-color .1s; }
+
+.muted { color: var(--muted, #8a93a6); font-size: 0.85em; }

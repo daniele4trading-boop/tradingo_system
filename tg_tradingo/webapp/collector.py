@@ -152,6 +152,7 @@ class Collector:
                         "ea_journal_dir": acc["ea_journal_dir"],
                         "signal_stats": acc.get("signal_stats"),
                         "start_date": acc.get("start_date"),
+                        "channel_overrides": acc.get("channel_overrides") or [],
                     }
                 )
             if out:
@@ -208,19 +209,24 @@ class Collector:
             return dict(self._snapshot)
 
     def channel_trades(self, channel_id: str, days: int = 30) -> list[dict]:
-        """Trade chiuse del canale `channel_id` negli ultimi `days` giorni UTC (una riga per TP)."""
+        """Trade chiuse del canale `channel_id` negli ultimi `days` giorni UTC (una riga per TP).
+
+        Solo il primo conto (lo stesso che alimenta il P&L/pips delle card canale):
+        gli altri conti replicano gli stessi segnali e duplicherebbero le gambe.
+        """
         from webapp.pnl import (
-            NORM_LOT, _f, build_magic_map, load_trades_range, normalize_channel,
-            signal_volumes, trade_pips,
+            NORM_LOT, _f, apply_channel_overrides, build_magic_map, load_trades_range,
+            normalize_channel, signal_volumes, trade_pips,
         )
         magic_map = build_magic_map(self._tradingo_cfg.get("channels", []))
         result: list[dict] = []
-        for acc in self.cfg.get("accounts", []):
+        for acc in self.accounts[:1]:
             jdir = acc.get("ea_journal_dir")
             if not jdir:
                 continue
             trades_dir = Path(jdir) / "trades"
             rows = load_trades_range(trades_dir, days, acc.get("start_date"))
+            rows = apply_channel_overrides(rows, acc.get("channel_overrides"), days, magic_map)
             sig_vol = signal_volumes(rows)
             for row in rows:
                 if (row.get("event") or "").upper() != "CLOSE":
@@ -245,6 +251,7 @@ class Collector:
                     "close_reason": row.get("close_reason"),
                     "signal_id": row.get("signal_id"),
                     "account": acc.get("label") or acc.get("id"),
+                    "source": row.get("source") or "real",
                 })
         result.sort(key=lambda r: r.get("ts_utc") or "", reverse=True)
         return result
@@ -283,6 +290,7 @@ class Collector:
                 worst = lt["status"]
 
         mt5_terminals = self._discover_mt5_terminals()
+        sertorio = self._load_sertorio()
         alerts = [
             f"MT5 spento ma dati presenti: {t['broker_name']} ({t['terminal_id'][:8]}…)"
             for t in mt5_terminals if not t["running"] and t["has_data"]
@@ -302,6 +310,7 @@ class Collector:
             "exec": phase2.get("exec"),
             "sources": phase2.get("sources"),
             "mt5_terminals": mt5_terminals,
+            "sertorio": sertorio,
             "alerts": alerts,
             "accounts": [
                 {
@@ -316,6 +325,34 @@ class Collector:
                 }
                 for acc in accounts
             ],
+        }
+
+    def _load_sertorio(self) -> dict | None:
+        """Zone/setup dell'ultima analisi Sertorio + esiti shadow (state/sertorio_*.json)."""
+        paths = self._tradingo_cfg.get("paths") or {}
+        base = paths.get("base")
+        state = Path(paths.get("state") or (Path(base) / "state" if base else ""))
+        if not base and not paths.get("state"):
+            return None
+        out: dict = {}
+        for key, name in (("zones", "sertorio_zones.json"), ("shadow", "sertorio_shadow.json")):
+            p = state / name
+            if p.exists():
+                try:
+                    out[key] = json.loads(p.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001
+                    out[key] = None
+        if not out:
+            return None
+        z = out.get("zones") or {}
+        z.pop("text", None)
+        sh = out.get("shadow") or {}
+        return {
+            "analysis_id": z.get("analysis_id"), "ts_utc": z.get("ts_utc"), "shadow": z.get("shadow", True),
+            "analysis": z.get("analysis"), "setups": z.get("setups") or [],
+            "pending": sh.get("pending") or [], "open": sh.get("open") or [],
+            "closed": (sh.get("closed") or [])[-30:][::-1],
+            "stats_7d": sh.get("stats_7d"), "stats_30d": sh.get("stats_30d"), "shadow_updated_utc": sh.get("updated_utc"),
         }
 
     def _build_account(self, acc: dict, magic_map: dict | None = None) -> dict:
@@ -340,6 +377,7 @@ class Collector:
                 equity_days=int(self.cfg.get("equity_days", 3)),
                 start_date=acc.get("start_date"),
                 magic_map=magic_map,
+                channel_overrides=acc.get("channel_overrides"),
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("phase2 build failed for %s: %s", acc.get("id"), exc)
