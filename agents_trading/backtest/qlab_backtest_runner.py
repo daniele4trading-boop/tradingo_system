@@ -18,14 +18,26 @@ from typing import Optional, Dict, List
 from datetime import datetime
 from pathlib import Path
 
-from agents_trading.backtest.data_loader import DataLoader
-from agents_trading.backtest.engine import BacktestEngine
-from agents_trading.exness.chart_analyst import ChartAnalyst
-from agents_trading.exness.strategy_executor import StrategyExecutor
-from agents_trading.exness.risk_manager import RiskManager
-from agents_trading.qlab.liquidity_analyzer import LiquidityAnalyzer
-from agents_trading.qlab.volume_analyzer import VolumeAnalyzer, VolumeMetrics
-from agents_trading.qlab.qlab_hypotheses import QLabHypotheses
+try:
+    # Try relative imports when part of agents_trading package
+    from .data_loader import DataLoader
+    from .engine import BacktestEngine
+    from exness.chart_analyst import ChartAnalyst
+    from exness.strategy_executor import StrategyExecutor
+    from exness.risk_manager import RiskManager
+    from qlab.liquidity_analyzer import LiquidityAnalyzer
+    from qlab.volume_analyzer import VolumeAnalyzer, VolumeMetrics
+    from qlab.qlab_hypotheses import QLabHypotheses
+except ImportError:
+    # Fall back to absolute imports when run from agents_trading directory
+    from backtest.data_loader import DataLoader
+    from backtest.engine import BacktestEngine
+    from exness.chart_analyst import ChartAnalyst
+    from exness.strategy_executor import StrategyExecutor
+    from exness.risk_manager import RiskManager
+    from qlab.liquidity_analyzer import LiquidityAnalyzer
+    from qlab.volume_analyzer import VolumeAnalyzer, VolumeMetrics
+    from qlab.qlab_hypotheses import QLabHypotheses
 
 logger = logging.getLogger(__name__)
 
