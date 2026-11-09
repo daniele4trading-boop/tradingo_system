@@ -1,0 +1,82 @@
+{
+  "metadata": {
+    "symbol": "XAUUSD",
+    "source": "QLAB T10 Discovery",
+    "generated_at": "2026-11-09T07:12:20.231014",
+    "total_strategies": 3,
+    "validation_period": "2024-2025"
+  },
+  "strategies": [
+    {
+      "id": "QLAB_MeanReversion_V1",
+      "name": "Mean Reversion to POC",
+      "hypotheses": [
+        "H0",
+        "H5",
+        "H28"
+      ],
+      "description": "Event outside Value Area mean-reverts to POC (Volume Profile)",
+      "entry_rules": [
+        "Price > Value Area High (session prior)",
+        "POC distance > 1.5 * ATR",
+        "No FVG between event and POC"
+      ],
+      "exit_rules": [
+        "Target: POC \u00b1 0.5*ATR",
+        "Stop: Value Area extremum + 20pips"
+      ],
+      "risk_reward": 2.0,
+      "win_rate": 0.58,
+      "sharpe": 1.2,
+      "backtest_period": "2024-2025",
+      "validated": true
+    },
+    {
+      "id": "QLAB_SweepConfluence_V1",
+      "name": "Sweep with Confluence",
+      "hypotheses": [
+        "H2",
+        "H5",
+        "H6"
+      ],
+      "description": "Sweep of structural level + hot level + EMA21 confluence",
+      "entry_rules": [
+        "Sweep of swing level",
+        "Confluence: hot level + EMA21 within 0.5*ATR",
+        "Momentum: RSI divergence on H1"
+      ],
+      "exit_rules": [
+        "Target: Opposite level same TF",
+        "Stop: Sweep extreme + spread buffer"
+      ],
+      "risk_reward": 2.2,
+      "win_rate": 0.59,
+      "sharpe": 1.3,
+      "backtest_period": "2024-2025",
+      "validated": true
+    },
+    {
+      "id": "QLAB_VolumeAbsorption_V1",
+      "name": "Volume Absorption at Support",
+      "hypotheses": [
+        "H9",
+        "H15"
+      ],
+      "description": "High relative volume + opposite delta = liquidity absorption + reversal",
+      "entry_rules": [
+        "Tick volume > 1.2x avg same hour",
+        "Delta negative on BUY impulse (or vice versa)",
+        "Impulse to level: strong (multiple ATR in 5 bars)"
+      ],
+      "exit_rules": [
+        "Target: Previous swing opposite side",
+        "Stop: Impulse extreme + margin"
+      ],
+      "risk_reward": 2.1,
+      "win_rate": 0.56,
+      "sharpe": 1.1,
+      "backtest_period": "2024-2025",
+      "validated": true
+    }
+  ]
+}

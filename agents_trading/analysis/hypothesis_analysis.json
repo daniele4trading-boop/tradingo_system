@@ -1,0 +1,351 @@
+{
+  "metadata": {
+    "symbol": "XAUUSD",
+    "generated_at": "2026-11-09T07:12:20.230719",
+    "total_hypotheses": 31,
+    "stable_hypotheses": 7
+  },
+  "hypotheses": [
+    {
+      "hypothesis": "H0",
+      "definition": "Esiste reazione oltre il caso (baseline)",
+      "status": "VALIDATED",
+      "n_events": 1938,
+      "effect_size": 0.08853780812769878,
+      "p_value": 0.03384333324447768,
+      "win_rate": 0.5691412571619471,
+      "passes_fdr": true,
+      "stable": true
+    },
+    {
+      "hypothesis": "H1",
+      "definition": "Swing forti reagiscono pi\u00f9 dei deboli",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.026610100483512256,
+      "p_value": 0.11093756467137449,
+      "win_rate": 0.5284978248705867,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H2",
+      "definition": "Lo sweep reagisce pi\u00f9 del tocco",
+      "status": "VALIDATED",
+      "n_events": 1938,
+      "effect_size": 0.1408256710280806,
+      "p_value": 0.038931844233546044,
+      "win_rate": 0.6058822752245914,
+      "passes_fdr": true,
+      "stable": true
+    },
+    {
+      "hypothesis": "H3",
+      "definition": "Sweep con attrattore opposto reagisce di pi\u00f9",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.00375769749759169,
+      "p_value": 0.053763034203887596,
+      "win_rate": 0.5429771769792737,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H4",
+      "definition": "Bias TF superiore concorde aumenta reazione",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.02538723581661826,
+      "p_value": 0.10949274317032207,
+      "win_rate": 0.5030183196448497,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H5",
+      "definition": "Confluenza con livello caldo aumenta reazione",
+      "status": "VALIDATED",
+      "n_events": 1938,
+      "effect_size": 0.06371148824555942,
+      "p_value": 0.023724658833170428,
+      "win_rate": 0.5544312707745973,
+      "passes_fdr": true,
+      "stable": true
+    },
+    {
+      "hypothesis": "H6",
+      "definition": "EMA21 concorde aumenta reazione",
+      "status": "VALIDATED",
+      "n_events": 1938,
+      "effect_size": 0.1444926489539563,
+      "p_value": 0.028619535947712226,
+      "win_rate": 0.6330116508893,
+      "passes_fdr": true,
+      "stable": true
+    },
+    {
+      "hypothesis": "H7",
+      "definition": "Numero ritorno/sweep cambia reazione",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.020974370691289414,
+      "p_value": 0.11200395052070393,
+      "win_rate": 0.46911708231667215,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H8",
+      "definition": "Sweep profondo + rientro rapido reagisce pi\u00f9",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.03379870672750555,
+      "p_value": 0.09305902140930294,
+      "win_rate": 0.4845909035561696,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H9",
+      "definition": "Volume relativo alto + delta contrario = assorbimento",
+      "status": "VALIDATED",
+      "n_events": 1938,
+      "effect_size": 0.08881788011175003,
+      "p_value": 0.019900388041922512,
+      "win_rate": 0.5815013441760836,
+      "passes_fdr": true,
+      "stable": true
+    },
+    {
+      "hypothesis": "H10",
+      "definition": "Fascia oraria cambia reazione",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.0026806706266459335,
+      "p_value": 0.12624243951186837,
+      "win_rate": 0.5096364999771175,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H11",
+      "definition": "Reazioni meno affidabili vicino news",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.01615894723506645,
+      "p_value": 0.06986809309099906,
+      "win_rate": 0.5451058148106481,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H12",
+      "definition": "Effetti cambiano con volatilit\u00e0",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.03758199782949078,
+      "p_value": 0.05823616460998252,
+      "win_rate": 0.4707785285710238,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H13",
+      "definition": "FVG forte aumenta reazione",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 8.145948083213117e-05,
+      "p_value": 0.09977410228966174,
+      "win_rate": 0.5233631063530353,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H14",
+      "definition": "Rottura fallita reagisce come sweep",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.03156739098427842,
+      "p_value": 0.06852413728423178,
+      "win_rate": 0.45316518684517143,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H15",
+      "definition": "Avvicinamento impulsivo aumenta reazione",
+      "status": "VALIDATED",
+      "n_events": 1938,
+      "effect_size": 0.12766776863540064,
+      "p_value": 0.001261552078497918,
+      "win_rate": 0.577063008919364,
+      "passes_fdr": true,
+      "stable": true
+    },
+    {
+      "hypothesis": "H16",
+      "definition": "Sweep confermato da CHoCH reagisce pi\u00f9",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.03926807618673184,
+      "p_value": 0.11789300861178915,
+      "win_rate": 0.5477812746704027,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H17",
+      "definition": "Divergenza RSI concorde aumenta reazione",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.03773546589448093,
+      "p_value": 0.11434926422450176,
+      "win_rate": 0.5125251308355868,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H18",
+      "definition": "Eventi agli estremi del range reagiscono pi\u00f9",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.0325712147441765,
+      "p_value": 0.05173291680901309,
+      "win_rate": 0.536076890266409,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H19",
+      "definition": "Sequenza composta (equal\u2192sweep\u2192CHoCH\u2192ritorno) reagisce pi\u00f9",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.03873210249111282,
+      "p_value": 0.1424723416980826,
+      "win_rate": 0.5331927524531539,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H20",
+      "definition": "EMA200 H1 non replica EMA21 (controllo)",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.020102737747632906,
+      "p_value": 0.134338148771863,
+      "win_rate": 0.5418177474071922,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H21",
+      "definition": "Kill zone: rottura tiene pi\u00f9; fuori sweep/fallita reagisce pi\u00f9",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.0033227916610505037,
+      "p_value": 0.12319184448303823,
+      "win_rate": 0.4869503566360971,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H22",
+      "definition": "Sweep concorde col close ieri reagisce pi\u00f9",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.010852575885425129,
+      "p_value": 0.1013603945171431,
+      "win_rate": 0.5167942506551703,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H23",
+      "definition": "Break-in PDH/PDL in Globex reagisce pi\u00f9",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.034517307598529993,
+      "p_value": 0.050967760117412775,
+      "win_rate": 0.4530317426635407,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H24",
+      "definition": "Compressione daily aumenta reazione giorno dopo",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.01048920285159245,
+      "p_value": 0.0792838217524909,
+      "win_rate": 0.5088730805324354,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H25",
+      "definition": "Eccesso M4 concorde aumenta reazione",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.031409837431791404,
+      "p_value": 0.05840421246069827,
+      "win_rate": 0.45795463029999317,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H26",
+      "definition": "Prima interruzione sequenza reagisce meno",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.039900006877495245,
+      "p_value": 0.12940386628005604,
+      "win_rate": 0.4645904126564152,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H27",
+      "definition": "Divergenza RSI in trend vs range (interazione)",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.005750838439630708,
+      "p_value": 0.0897356190657308,
+      "win_rate": 0.5064455094959773,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H28",
+      "definition": "Evento fuori VA reagisce pi\u00f9 verso POC (mean reversion)",
+      "status": "VALIDATED",
+      "n_events": 1938,
+      "effect_size": 0.11382241469555726,
+      "p_value": 0.010851538304559188,
+      "win_rate": 0.6299687706940003,
+      "passes_fdr": true,
+      "stable": true
+    },
+    {
+      "hypothesis": "H29",
+      "definition": "Approccio da LVN accelera pi\u00f9 (vacuum effect)",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.0038234521188959115,
+      "p_value": 0.09908186636861052,
+      "win_rate": 0.45317684918087037,
+      "passes_fdr": true,
+      "stable": false
+    },
+    {
+      "hypothesis": "H30",
+      "definition": "Profilo GC robusto come profilo tick (controllo)",
+      "status": "NOT_STABLE",
+      "n_events": 1938,
+      "effect_size": 0.03801043251149259,
+      "p_value": 0.12657947567108485,
+      "win_rate": 0.5300984343196752,
+      "passes_fdr": true,
+      "stable": false
+    }
+  ]
+}
