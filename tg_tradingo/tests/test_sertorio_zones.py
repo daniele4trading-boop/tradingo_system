@@ -150,11 +150,11 @@ def test_build_open_signal_and_live_paths(tmp_path):
     setup = {"id": "s1", "symbol": "XAUUSD", "direction": "BUY", "entry_lo": 4000.0, "entry_hi": 4003.0,
              "sl": 3990.0, "tps": [4010.0, 4020.0], "source": "idea", "expires_utc": "2099-01-01T00:00:00Z",
              "analysis_ts": "2026-11-01T00:00:00Z"}
-    ch = {"id": "CH_SERTORIO", "name": "Sertorio", "magic_base": 18000, "signal_file": "signal_ch_sertorio.json"}
+    ch = {"id": "CH_SERTORIO", "name": "Sertorio", "magic_base": 19000, "signal_file": "signal_ch_sertorio.json"}
     ts = datetime(2026, 11, 2, 10, 0, tzinfo=timezone.utc)
     sig = build_open_signal(setup, 4002.5, ch, scfg, ts)
     assert sig["action"] == "OPEN" and sig["trades"] == 2 and sig["fixed_lot"] == 0.02
-    assert sig["entry_range"] == [4000.0, 4003.0] and sig["magic_base"] == 18000
+    assert sig["entry_range"] == [4000.0, 4003.0] and sig["magic_base"] == 19000
     assert sig["signal_id"] == "SZ-s1" and "entry" not in sig
 
     cfg = {"mt5_instances": [
