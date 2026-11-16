@@ -35,6 +35,7 @@ L'EA non richiede Telegram né Python: legge solo i JSON.
 | `signal_ch_stark.json` | Sala Stark | 14000 |
 | `signal_ch_ivan.json` | IvanTrades VIP | 17000 |
 | `signal_ch_ivanbtc.json` | IvanTrades - BTC (BTCUSD/XAGUSD) | 18000 |
+| `signal_ch_sertorio.json` | Matteo Sertorio (zone, tag `SZ`) | 19000 |
 
 Stato iniziale / idle: `{"action": "NONE"}`.
 

@@ -179,7 +179,7 @@
       "name": "Matteo Sertorio - Canale pubblico",
       "parser": "sertorio_zones",
       "signal_file": "signal_ch_sertorio.json",
-      "magic_base": 18000,
+      "magic_base": 19000,
       "interpreter": {
         "enabled": true,
         "model": "claude-sonnet-4-5",
