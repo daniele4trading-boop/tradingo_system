@@ -1,0 +1,45 @@
+symbols: [XAUUSD, XAGUSD, EURUSD, GBPUSD, USDJPY, SPX500]
+primary_symbol: XAUUSD
+data_root: /home/ubuntu/quantlab-data
+output_dir: sweep_research_h4/output
+drop_flat_zero_volume_m1: true
+sources:
+  SPX500: dukascopy_candles
+  EURUSD: dukascopy_candles
+  GBPUSD: dukascopy_candles
+  USDJPY: dukascopy_candles
+symbol_period_start:
+  XAGUSD: "2022-08-01"
+period:
+  start: null
+  end: "2026-07-24"
+h4:
+  anchor_utc_hour: 21
+  source_tf: M1
+price_basis: mid
+atr_period: 14
+swing_n: [5, 10, 20]
+equal_level_tol_atr: 0.15
+equal_level_min_points: 2
+max_level_age_bars: 250
+min_penetration_atr: 0.10
+hypothesis: continuation
+horizons_bars: [1, 2, 4, 12]
+mfe_mae_horizon_bars: 12
+drift_detrend: {by: [symbol, year]}
+external:
+  dxy: {symbol: DOLLARIDXUSD, source: dukascopy}
+  real_yield_proxy: {symbol: USTBONDTRUSD, source: dukascopy}
+  change_lags_bars: [5, 20]
+corr_window_bars: 20
+atr_regime_window_bars: 250
+vol_median_window_bars: 250
+efficiency_window_bars: 10
+week_52_bars: 1560
+liquidity_density_atr: 0.5
+touch_tol_atr: 0.05
+macro_calendar: config/macro_calendar.csv
+s2_segments_exclude: [XAGUSD]
+s2_min_segment_events: 200
+leakage_cuts_per_symbol: 4
+seed: 20240801
