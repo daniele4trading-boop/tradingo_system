@@ -6,11 +6,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "1.14"
+#property version   "1.15"
 #property strict
 #property description "JSON signal executor for TG TradinGo bridge (MT4)"
 
-#define EA_VERSION "1.14"
+#define EA_VERSION "1.15"
 #define MAX_CHANNELS 16
 #define MAX_TRADES_PER_SIGNAL 5
 
@@ -975,17 +975,16 @@ bool IsOpenBlocked()
 //| this check the stops get clamped to the legal side and the order    |
 //| opens only to be closed at once, paying the spread.                |
 //+------------------------------------------------------------------+
-bool LevelsNearMarket(const double price, const double sl, const double tp,
+bool LevelsNearMarket(const double price, const double sl,
                       const double entry, double &outWorstPct)
   {
    outWorstPct = 0.0;
    if(InpMaxLevelDeviationPct <= 0.0 || price <= 0.0)
       return true;
-   double levels[3];
+   double levels[2];
    levels[0] = sl;
-   levels[1] = tp;
-   levels[2] = entry;
-   for(int i = 0; i < 3; i++)
+   levels[1] = entry;
+   for(int i = 0; i < 2; i++)
      {
       if(levels[i] <= 0.0)
          continue;
@@ -1015,7 +1014,7 @@ bool OpenMarket(const string symbol, const string direction, const double lot,
       return false;
      }
    double devPct = 0.0;
-   if(!LevelsNearMarket(price, sl, tp, SignalEntryFromJson(json, rangeLo, rangeHi),
+   if(!LevelsNearMarket(price, sl, SignalEntryFromJson(json, rangeLo, rangeHi),
                         devPct))
      {
       Print("[TradinGo] OPEN skipped — off-market levels price=", price,

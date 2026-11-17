@@ -72,12 +72,31 @@ def _parse_time(value: str) -> time:
 
 
 def _resolve_secret(raw: dict[str, Any], key: str) -> str:
-    """Legge un segreto da variabile d'ambiente (`*_env`) o dal file di config."""
+    """Legge un segreto dall'archivio DPAPI, da env, o dal file di config.
+
+    Priorità: secrets_store > os.environ > valore in chiaro nel JSON.
+    """
     env_key = raw.get(f"{key}_env")
     if env_key:
+        # Prova prima l'archivio DPAPI
+        try:
+            import sys as _sys
+            _root = str(__import__("pathlib").Path(__file__).resolve().parents[2])
+            if _root not in _sys.path:
+                _sys.path.insert(0, _root)
+            from tg_tradingo.secrets_store import store as _ss
+            val = _ss.get(env_key)
+            if val:
+                return val
+        except Exception:
+            pass
+        # Fallback: variabile d'ambiente
         value = os.environ.get(env_key)
         if not value:
-            raise ValueError(f"variabile d'ambiente {env_key} non impostata")
+            raise ValueError(
+                f"secret '{env_key}' non trovato nell'archivio né come variabile d'ambiente. "
+                f"Usare: python -m tg_tradingo.secrets_store set {env_key}"
+            )
         return value
     value = raw.get(key)
     if not value:

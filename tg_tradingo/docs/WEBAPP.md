@@ -7,9 +7,12 @@ equity curve, stats esecuzione EA. Fase 3 (ordini) predisposta ma disabilitata
 
 ## Architettura
 
-- Processo Python unico (FastAPI + uvicorn) su **Contabo**, porta `8600`.
-- Collector in thread background (refresh 15s), tutte le letture UNC con timeout.
-- Accesso **solo via Tailscale**. Telefono/PC: `http://100.110.249.72:8600`.
+- Processo Python unico (FastAPI + uvicorn) su **Gamehosting** (`WIN-72D7M1PCJC6`),
+  `0.0.0.0:8610`. Sulla stessa macchina la porta 8600 è dell'Agent Hub.
+- Avvio: task `TG_TradinGo_WebappAtLogon` → `run_webapp_task.cmd` (venv
+  `C:\TG_TradinGo\.venv`, salta l'avvio se la webapp è già attiva).
+- Collector in thread background (refresh 15s), tutte le letture con timeout.
+- Accesso **solo via Tailscale**. Telefono/PC: `http://100.74.9.8:8610`.
 
 ## Sicurezza
 
@@ -45,6 +48,11 @@ Ogni conto è una voce di `accounts` e produce un riquadro nella sezione **Conti
 ]
 ```
 
+- `channel_overrides` (opzionale): per un canale sostituisce le gambe reali chiuse prima di
+  `until` (UTC, esclusa) con quelle di un CSV nello stesso formato `trades_*.csv`.
+  Usato per IVAN: fino al 31/10/2026 pips/P&L vengono da `webapp/data/ivan_theory_legs.csv`
+  (simulazione dei setup di Ivan senza i bug di bridge/EA, 0,01 lotti/gamba), dall'1/11
+  dalle gambe reali del conto. Nel dettaglio canale le gambe simulate hanno `source=theory`.
 - `start_date` scarta la storia precedente: accetta un giorno (`2026-08-05`) o un
   istante (`2026-08-05T10:05:00Z`, utile dopo un reset a metà giornata). Serve dopo un reset saldo,
   altrimenti equity e PnL includono la storia del conto vecchio.
@@ -61,14 +69,36 @@ Da `accounts[].ea_journal_dir` (MQL5\\Files\\journal):
 | `equity\equity_YYYYMMDD.csv` | equity, floating, sparkline |
 | `..\tradingo_signal_stats.csv` | eseguiti vs annullati |
 
-Tag EA `ORO` / `GOLD` / `IT` / `AS` → normalizzati a `CH_*`.
+### Canale di un trade
+
+Il canale si ricava prima dal `magic` del CSV, poi dalla colonna `channel`:
+
+- `build_magic_map` legge i `magic_base` da `tradingo_config.json` (ricaricato a ogni
+  ciclo se cambia la data del file) → `{magic_base: channel_id}`.
+- `prefix = (int(float(magic)) // 1000) * 1000`, quindi un nuovo canale deve avere un
+  `magic_base` multiplo di 1000 non ancora usato (i TP sono `magic_base + 1..3`).
+- Se il magic non è in mappa si usa il tag EA (`GOLD` / `IT` / `AS` / `CH_*`).
+
+## Admin
+
+`/admin` (solo utenti in `admin_users`, default `["daniele"]`): stato terminali MT5,
+alert, costi e prelievi. I dati stanno in `C:\TG_TradinGo\webapp_admin_data.json`
+(non in git), gestiti da `admin_mgr.py`.
+
+- Auto-discovery: scansiona `%APPDATA%\MetaQuotes\Terminal\*`, legge `origin.txt`,
+  cerca CSV in `MQL5\Files\journal\trades\` e controlla `terminal64.exe`.
+  Alert se un terminale ha dati ma non è in esecuzione.
+- `POST /api/admin/account` imposta label, tipo (`vetrina` / `personale` / `prop`),
+  visibilità e `show_equity_total`. **Vantage: `show_equity_total` sempre `false`**
+  (si mostra solo il PnL per canale).
 
 ## Aggiornamento (senza rifare password)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\StatArb\scripts\pull_and_deploy_tg_tradingo.ps1 -Branch cursor/journal-and-exit-hardening-8e22
-# Ctrl+C sulla finestra webapp, poi:
-C:\TG_TradinGo\start_webapp.bat
+# poi riavvio dal Task Scheduler:
+schtasks /End /TN TG_TradinGo_WebappAtLogon
+schtasks /Run /TN TG_TradinGo_WebappAtLogon
 ```
 
 Opzionale in `webapp_config.json` (se manca):

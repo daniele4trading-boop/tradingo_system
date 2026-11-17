@@ -15,14 +15,52 @@ import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 log = logging.getLogger("TradinGo")
 
 PLACEHOLDER_API_HASH = "INSERISCI_API_HASH_TELEGRAM"
 PRODUCTION_CONFIG = Path(r"C:\TG_TradinGo\tradingo_config.json")
+
+# Sentinel nel JSON: indica che il valore va letto dall'archivio segreti.
+_SECRETS_SENTINEL = "@secrets"
+
+
+def resolve_telegram_credentials(tg_cfg: dict) -> dict:
+    """Integra api_id/api_hash nel dict telegram del config.
+
+    Se il valore nel JSON è assente, è il segnaposto originale o è
+    la stringa "@secrets", viene letto dall'archivio secrets_store.
+    Se il valore è già presente in chiaro, viene usato così (con WARNING).
+    Restituisce un *nuovo* dict con i campi risolti.
+    """
+    try:
+        from secrets_store import store  # import locale (cwd = tg_tradingo)
+    except ImportError:
+        try:
+            from tg_tradingo.secrets_store import store
+        except ImportError:
+            log.warning("secrets_store non importabile: uso valori dal JSON")
+            return tg_cfg
+
+    cfg = dict(tg_cfg)
+    for field, key in (("api_id", "TELEGRAM_API_ID"), ("api_hash", "TELEGRAM_API_HASH")):
+        raw = cfg.get(field)
+        needs_secret = (
+            not raw
+            or str(raw).strip() in (_SECRETS_SENTINEL, PLACEHOLDER_API_HASH, "0", "")
+        )
+        if needs_secret:
+            cfg[field] = store.require(key)
+        else:
+            # Valore in chiaro nel JSON: avvisa ma usa comunque
+            log.warning(
+                "telegram.%s presente in chiaro nel JSON: spostarlo nell'archivio segreti "
+                "con: python -m tg_tradingo.secrets_store set %s",
+                field, key,
+            )
+    return cfg
 
 
 def resolve_config_path(explicit: str | os.PathLike | None = None) -> Path:
@@ -46,8 +84,11 @@ def resolve_config_path(explicit: str | os.PathLike | None = None) -> Path:
             tg = data.get("telegram", {})
             api_id = tg.get("api_id")
             api_hash = (tg.get("api_hash") or "").strip()
+            # Accetta anche il file con sentinel "@secrets" (le cred stanno nell'archivio)
+            if str(api_id).strip() == _SECRETS_SENTINEL or api_hash == _SECRETS_SENTINEL:
+                return True
             return bool(api_id) and bool(api_hash) and api_hash != PLACEHOLDER_API_HASH
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
     seen: set[Path] = set()
@@ -184,10 +225,47 @@ _SELECTIVE_REENTRY_NOUN = (
 )
 # "lasciamo/teniamo solo quelle …": il qualificatore descrive ciò che RESTA.
 SELECTIVE_KEEP_MAX_WORDS = 10
+# "Mettiamo a BE le entrate più brutte", "chiudere a BE le entry più alte":
+# il canale protegge a pareggio solo una parte delle entry (SL al fill), non le
+# chiude a mercato. Il valore descrive il gruppo da portare a BE.
+BE_SCOPE_MODES = frozenset({"ALL", "BEST", "WORST", "HIGHEST", "LOWEST"})
+_SELECTIVE_BE_MARK = r"(?:\bBE\b|\bB\.E\.?|\bBREAK\s*EVEN\b|\bBREAKEVEN\b|\bPAREGGIO\b)"
+_SELECTIVE_WORST_EXT = (
+    r"(?:MENO\s+PREMIUM|PEGGIOR[EI]|PIU\s+BRUTT[EI]|BRUTT[EI]|PIU\s+DEBOL[EI]|"
+    r"MENO\s+BUON[EI]|IN\s+PERDITA|IN\s+LOSS|WORST|WEAKEST)"
+)
 _SELECTIVE_KEEP_VERB = (
     r"(?:LASCIAMO|LASCIATE|LASCIA|LASCIANDO|TENIAMO|TENETE|TIENI|"
     r"MANTENIAMO|MANTENETE|RESTANO|RESTA|KEEP|HOLD)"
 )
+
+
+def match_selective_be_intent(upper: str) -> str | None:
+    """BE solo su una parte delle entry: ritorna il gruppo da portare a pareggio.
+
+    Valori: ``WORST`` / ``BEST`` / ``HIGHEST`` / ``LOWEST`` (vedi BE_SCOPE_MODES),
+    ``None`` se il messaggio non è un BE selettivo. "Chiudere a BE le entry più
+    alte" è un BE (SL al fill), non una chiusura a mercato: va valutato PRIMA
+    di :func:`match_selective_close_intent`.
+    """
+    if not upper or not upper.strip():
+        return None
+    text = _fold_accents_upper(upper)
+    if not re.search(_SELECTIVE_BE_MARK, text):
+        return None
+    if re.search(_SELECTIVE_ENTRY_NOUN, text) is None:
+        return None
+    if re.search(r"\bTUTT[OIE]\b|\bALL\b", text):
+        return None
+    if re.search(_SELECTIVE_WORST_EXT, text):
+        return "WORST"
+    if re.search(_SELECTIVE_BEST, text):
+        return "BEST"
+    if re.search(_SELECTIVE_HIGH, text):
+        return "HIGHEST"
+    if re.search(_SELECTIVE_LOW, text):
+        return "LOWEST"
+    return None
 
 
 def match_selective_close_intent(upper: str) -> str | None:
@@ -213,7 +291,10 @@ def match_selective_close_intent(upper: str) -> str | None:
     # La forma "tieni" non ha verbo di chiusura: vale solo in messaggi brevi,
     # così una frase narrativa lunga non chiude posizioni.
     words = re.findall(r"[A-Za-z\u00c0-\u00ff]+", text)
-    if keep_form and has_noun and len(words) <= SELECTIVE_KEEP_MAX_WORDS:
+    if (
+        keep_form and has_noun and len(words) <= SELECTIVE_KEEP_MAX_WORDS
+        and not re.search(r"\bSL\b|\bSTOP\b|\bNORMAL[EI]\b|\bBE\b", text)
+    ):
         if re.search(_SELECTIVE_HIGH, text):
             return "HIGHEST"
         if re.search(_SELECTIVE_LOW, text):
@@ -235,7 +316,8 @@ def match_selective_close_intent(upper: str) -> str | None:
     # Il complemento deve seguire il verbo: "chiudiamo tutto" resta una chiusura
     # totale anche se la frase parla di rientri.
     if not re.search(r"\bTUTT[OIE]\b|\bALL\b|\bEVERYTHING\b", text) and re.search(
-        rf"{close_verb}\s+(?:LA|IL|LE|I|GLI|LO|SOLO|SOLTANTO|THE)?\s*"
+        rf"{close_verb}\s+(?:(?:ORA|ADESSO|SUBITO|NOW|QUI|TUTT[AE]|SOLO|SOLTANTO)\s+)?"
+        rf"(?:LA|IL|LE|I|GLI|LO|SOLO|SOLTANTO|THE)?\s*"
         rf"{_SELECTIVE_REENTRY_NOUN}",
         text,
     ):
@@ -742,7 +824,7 @@ class BridgeState:
                 self.oro_pending_dir,
                 self.forex_pending_symbol,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             log.warning("Could not load bridge state %s: %s", self.state_file, exc)
 
     def save(self) -> None:
@@ -772,7 +854,7 @@ class BridgeState:
             },
             "forex_last_trade": self.forex_last_trade,
             "close_price_pending": self.close_price_pending,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         save_state_json(self.state_file, payload, "bridge state")
 
@@ -996,7 +1078,7 @@ class ProcessedMessageStore:
             self._keys = list(data.get("keys", []))
             self._seen = set(self._keys)
             log.info("Loaded %d processed message keys", len(self._keys))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             log.warning("Could not load processed messages %s: %s", self.store_file, exc)
 
     def save(self) -> None:
@@ -1005,7 +1087,7 @@ class ProcessedMessageStore:
             self._seen = set(self._keys)
         save_state_json(
             self.store_file,
-            {"keys": self._keys, "updated_at": datetime.now(timezone.utc).isoformat()},
+            {"keys": self._keys, "updated_at": datetime.now(UTC).isoformat()},
             "processed messages",
         )
 
@@ -1171,6 +1253,11 @@ def validate_signal(signal: dict) -> tuple[bool, str]:
         if keep not in SELECTIVE_KEEP_MODES:
             return False, f"CLOSE_SELECTIVE keep must be one of {sorted(SELECTIVE_KEEP_MODES)}, got {keep!r}"
 
+    if action == "CHECK_AND_BE":
+        scope = signal.get("scope")
+        if scope is not None and scope not in BE_SCOPE_MODES:
+            return False, f"CHECK_AND_BE scope must be one of {sorted(BE_SCOPE_MODES)}, got {scope!r}"
+
     if action == "OPEN_NOW":
         if signal.get("entry") is not None:
             return False, "OPEN_NOW must not include entry"
@@ -1262,8 +1349,7 @@ def apply_lot_rules(signal: dict, ch: dict) -> dict:
         expected = int(
             exec_cfg.get("tp_levels_expected", ch.get("tp_levels_expected", 1)) or 1
         )
-        if expected < 1:
-            expected = 1
+        expected = max(expected, 1)
         if expected >= 2:
             signal["trades"] = expected
             signal["fixed_lot"] = lot_per_tp * lot_factor
@@ -1274,10 +1360,12 @@ def apply_lot_rules(signal: dict, ch: dict) -> dict:
             signal["splits"] = [1.0]
         return signal
 
-    if n_tp >= 2:
-        signal["trades"] = n_tp
+    # Gambe runner senza TP (Hybrid "Tp3: open"): l'EA le apre come slot oltre i TP.
+    n_legs = n_tp + int(signal.get("runner_legs") or 0) if n_tp else 0
+    if n_legs >= 2:
+        signal["trades"] = n_legs
         signal["fixed_lot"] = lot_per_tp * lot_factor
-        signal["splits"] = [round(1.0 / n_tp, 4)] * n_tp
+        signal["splits"] = [round(1.0 / n_legs, 4)] * n_legs
     else:
         signal["trades"] = 1
         signal["fixed_lot"] = lot_single * lot_factor

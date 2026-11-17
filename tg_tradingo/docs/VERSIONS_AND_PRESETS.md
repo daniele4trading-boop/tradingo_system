@@ -16,13 +16,64 @@ I branch `cursor/*` e `devin/*` sono di lavoro: allinearli a `main` prima di rip
 
 | Componente | Versione | Dove è dichiarata |
 |---|---|---|
-| Bridge Python | **2.28** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
-| EA MT5 | **2.28** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
-| EA MT4 | **1.14** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
+| Bridge Python | **2.34** | `BRIDGE_VERSION` in `tg_tradingo/tradingo_bridge.py` (banner di avvio e `start_tradingo.bat`) |
+| EA MT5 | **2.36** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql5/TG_TradinGoEA.mq5` |
+| EA MT4 | **1.15** | `#property version` + `#define EA_VERSION` in `tg_tradingo/mql4/TG_TradinGoEA.mq4` (stesso contratto JSON del bridge 2.24) |
 
 Bridge ed EA MT5 si muovono insieme sul contratto JSON ([`EA_SPEC.md`](EA_SPEC.md)).
 L’EA MT4 è un consumer aggiuntivo dello stesso JSON (nessun secondo parser).
 Setup Contabo T4Trade + predisposizione path iFunds: [`MT4_T4TRADE_SETUP.md`](MT4_T4TRADE_SETUP.md).
+
+**MT5 2.36 (Sertorio live su Vantage):** canale `sertorio` (`signal_ch_sertorio.json`, tag `SZ`, `InpLotSertorio`, `InpDdFloatSertorio`). I segnali li scrive `tools/sertorio_shadow.py` al tocco delle zone (`setups.shadow=false`, `live_instances=["Vantage"]`), non il bridge. Preset Vantage: `InpChannels` + `sertorio`, `InpLotSertorio=0.20`.
+
+**2.34 / MT5 2.35 (Hybrid):** (a) bridge: un OPEN Hybrid scartato dalla validazione (EURGBP 27/10: entry `0.73675` per refuso, TP incoerenti) viene dimenticato (`hybrid_forget_signal`), così l'EDIT correttivo del canale non è più "segnale già aperto" ma diventa `UPDATE_OPEN` e apre a mercato (con guard drift). (b) EA: `UPDATE_OPEN` annullato dal guard drift (`UPDATE_OPEN_CANCELLED`, >`InpUpdateOpenMaxDriftPctOfSl` della distanza SL) resta pendente per `InpRangeRetrySec` (300) e apre appena il prezzo rientra entro il drift massimo; scartato se tocca SL/TP1, scade o arriva un nuovo segnale sul canale (21/10 BUY 4130 e 27/10 BUY 4025: annullati a 46-48%, poi TP1/TP2). Preset Xlence e Ultima: `InpChannels` + `hybridgold,hybridfx`, `InpLotHybridGold/Fx=0.02` per gamba. Riportati in repo gli input della 2.34 che girava su Gamehosting dal 23/10 ma non erano mai arrivati su main: `InpLotIvanBtc`, `InpLotPerSignal` (lotto del preset = per segnale, diviso sulle gambe: Vantage 0.40 → 0.20 ×2 Hybrid), `lot_factor` dal JSON (`ChannelLotOverride`).
+
+**MT5 2.34:** BE con `be_price` = il più largo tra nostro fill e entry del canale (BUY: il più basso), mai più stretto del fill (28/10: fill 4033.26, entry 4036 → SL 4036 chiudeva T3/T4 prima di TP3/TP4); se l'entry è oltre `InpBeSignalEntryMaxGapPoints` (ora 200, era 500) dal fill lo SL si ferma a fill ∓ 200 pts. Rimosso `InpBeSignalEntryMaxLoss`. Preset IVAN aggiornati a 200. (2) `InpRangeRetrySec` (300): un OPEN/UPDATE_OPEN scartato dal guard off-market (`SIGNAL_CANCELLED`) resta in attesa (`RANGE_RETRY_PENDING`) e viene aperto appena il prezzo torna entro range+tolleranza (`RANGE_RETRY_EXECUTE`); scartato se il prezzo supera lo SL pubblicato o tocca TP1, allo scadere della finestra o all'arrivo di un nuovo segnale sullo stesso canale (`RANGE_RETRY_DROPPED`). 29/10: SELL 4028-4033 postato con prezzo 4025.5 (205-249 pts oltre i 200 di tolleranza), rientrato in zona poco dopo e poi a TP3.
+
+**2.33 / MT5 2.33:** interprete LLM (Anthropic) dei messaggi di gestione IVAN (`ivan_interpreter.py`, config canale `interpreter`, debounce 25 s sui messaggi consecutivi, modalità shadow/live); EA: con fill uguali "peggiori" = T2+T4 e "migliori" = T1+T3 per CHECK_AND_BE scope e CLOSE_SELECTIVE keep (prima BE su tutte / nessuna chiusura).
+
+**2.32 / MT5 2.32:** unione su `main` della linea produzione Gamehosting (Hybrid, DD guard prop, STARK TP singolo, levels = MT5 2.30/2.31 + bridge 2.29) con i fix IVAN 2.30/2.31 (BE selettivo, stack rientro, UPDATE_OPEN, TP non numerico). Nessuna nuova funzionalità.
+
+**2.31 (bridge):** casi IVAN del 14/10. (1) `TP4: swing` veniva letto come TP=4.0 (il "4"
+di "TP4") e il setup intero scartato ("TP levels incoherent"): nessun trade aperto su nessun
+conto. Ora un TP non numerico (`swing`, `open`, `?`) è uno slot vuoto e il trade si apre
+comunque: ultimo TP mancante = precedente + 300 pips (30 $ oro, `IVAN_TP_FALLBACK_PIPS`),
+intermedio = metà tra precedente e successivo, primo = metà tra entry e successivo (log
+`TP_FALLBACK`). (2) "Aspettiamo **ora prima di** rientrare" era un rientro a mercato
+(bloccato dall'EA solo per il drift 210 %): "prima di rientrare/entrare" e "aspettiamo
+ora/adesso" sono attese, non ordini.
+
+**2.30 / MT5 2.30:** casi IVAN dell'8-12/10. Bridge: (1) "mettiamo a BE le entrate più
+brutte" / "chiudere a BE le entry più alte" → `CHECK_AND_BE` con `scope`
+(WORST/BEST/HIGHEST/LOWEST), SL al fill sulle gambe indicate, non più `CLOSE_SELECTIVE` a
+mercato; "lasciamo normali con SL quelle più alte" non è una chiusura. (2) Setup completo che
+si dichiara rientro ("SELL 4171 … Reentry, si") → `OPEN` con `allow_stack=true` (nuovo
+blocco, "piccole size" → `lot_factor=0.5`); l'EDIT dello stesso rientro non stacka due volte.
+(3) "CHIUDIAMO ORA LA REENTRY SOLO" / "chiudo il rientro" → `CLOSE_SELECTIVE
+keep=ALL_BUT_NEWEST` (prima `CLOSE_ALL_SYMBOL`: chiuse le 4 posizioni base). EA: (4)
+`CHECK_AND_BE scope`; (5) `UPDATE_OPEN` non riapre una gamba già chiusa (TP/SL/BE) dello
+stesso `signal_id` (storico deal, `InpUpdateFillHistoryHours`); (6) coda BE ritentata ogni
+`InpBePendingRetrySec` (5 s) senza ripetere i log; (7) `InpBeMode=BE_SIGNAL_ENTRY`: BE alla
+entry del canale anche se peggiore del fill, entro `InpBeSignalEntryMaxLoss` (5 $/oz).
+
+**MT5 2.30 (bridge 2.29 invariato):** regole prop Agorà. (1) Guard DD giornaliero
+`InpDdDailyPct`: riferimento = max(saldo, equity) al reset delle `InpDdDailyResetHourNY`
+(17:00 New York, ora legale USA gestita), salvato in GlobalVariable `TG_TRADINGO_DDD_*` così
+sopravvive ai riavvii nello stesso giorno. Sotto `InpDdDailyBlockNewAtPct` % del limite blocca
+i nuovi ingressi, sotto `InpDdDailyCloseAtPct` % chiude tutte le posizioni TG
+(`KILLSWITCH_DAILY_DD`) e blocca fino al reset successivo (non serve reset manuale).
+(2) `InpDdTrailEod`: a ogni reset il riferimento del DD massimo sale al max(saldo, equity) se
+più alto (floor trailing di fine giornata). Con 0 / false tutto come 2.29.
+
+**2.29 / MT5 2.29 / MT4 1.15:** casi IVAN del 02/10. (1) EA: il guard off-market
+(`InpMaxLevelDeviationPct` / `max_level_deviation_pct`) controlla solo entry e SL, non più
+il TP: `SELL 4199 TP4 4110` (2,1 % dal prezzo) aveva annullato la sola T4 su tutti i conti
+(`CANCELLED_OFF_MARKET`) mentre T1-T3 aprivano; un TP lontano non impedisce l'apertura, il
+canale lo corregge se sbagliato. (2) Bridge: rientro negato ignorato — "Ci stava rientrare
+da sopra ma **non me la sono sentita**" era diventato un `OPEN` a mercato (bloccato dall'EA
+solo per il drift 77 %). Una negazione che precede il verbo di rientro nella stessa frase
+(non/no/mai/neanche/senza) o una rinuncia esplicita ("non me la sento", "niente rientro",
+"lasciamo stare", "non ne vale") viene trattata come non operativa.
 
 **2.28 / MT5 2.28 / MT4 1.14:** BE al livello più protettivo tra fill ed entry del
 segnale (`BeTargetForPosition`/`BeTargetForOrder`): fill migliore → BE al fill (log
@@ -32,6 +83,13 @@ canale ("Mettiamo BE x free risk", "Spostiamo stop a BE", "Portiamo lo stop a BE
 "Siamo free risk"), solo con verbo coniugato: "se spostare a BE", "riuscito a mettere BE"
 e gli annunci per dopo ("Come tocca TP 1 mettiamo stop a BE", "quando/appena") non
 emettono `CHECK_AND_BE`. Il 17/09 "Mettiamo BE x free risk" non era stato riconosciuto.
+
+**2.31 / MT5 2.31:** canali `CH_HYBRIDGOLD` (Hybrid | Setup Gold, magic 15000,
+`signal_ch_hybridgold.json`, tag `HG`) e `CH_HYBRIDFX` (Hybrid | Setup Forex, magic 16000,
+`signal_ch_hybridfx.json`, tag `HF`), parser `hybrid`. Input `InpLotHybridGold`/`InpLotHybridFx`,
+`InpDdFloatHybridGold`/`InpDdFloatHybridFx`. La gestione (anticipo TP, SL spostato, stop preso,
+chiusura) arriva come reply al segnale: il bridge passa `reply_to_msg_id` al parser. Le analisi dei
+canali non generano segnali. Solo Vantage: `InpChannels=gold,forex,stark,ivan,ivanbtc,hybridgold,hybridfx`.
 
 **2.27 / MT5 2.27:** canale `CH_IVANBTC` (IvanTrades - BTC, magic 18000,
 `signal_ch_ivanbtc.json`, parser `ivan_btc`). Opera SOLO su BTCUSD/XAGUSD con stato per
@@ -199,8 +257,9 @@ Tutti in `tg_tradingo/mql5/presets/`, si caricano da `Inputs → Load` sul chart
 
 | Preset | Conto | Guard DD | Sizing serbatoio | Canali | Note |
 |---|---|---|---|---|---|
-| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Contabo) | off | off | tutti e 5 | conto "misura i canali": nessun guard altera i risultati |
+| `TG_TradinGo_Vantage_Demo.set` | Vantage demo (Gamehosting) | off | off | gold, forex, stark, ivan, ivanbtc | conto "misura i canali": riceve tutti i canali attivi, nessun guard altera i risultati. ORO VIP dismesso (10/2026) |
 | `TG_TradinGo_Ultima_iFunds_Demo.set` | Ultima demo (Gamehosting) | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | prova delle regole iFunds; `InpMagicOffset=0` per non perdere le posizioni già aperte |
+| `TG_TradinGo_Agora_50k_Prop.set` | Agorà Funds 50k Mixed (terminale Ultima, BlueChipBroker-Server) | giornaliero 4%: blocco 3%, chiusura 3,5%; massimo 6% trailing: blocco 3%, chiusura 4,2% | off | ivan 0.01 | suffisso `.ago`; TITANY sullo stesso conto (l'equity lo include, i guard chiudono solo posizioni TG) |
 | `TG_TradinGo_iFunds_10k_dd6.set` | iFunds 10k reale | 6%, start 10.000 → floor 9.400 | on, cap 0,05 | ivan, stark | `InpMagicOffset=500000` |
 | `TG_TradinGo_iFunds_50k_dd6.set` | iFunds 50k reale | 6%, start 50.000 → floor 47.000 | on, cap 0,25 | ivan, stark | scalata dopo il 10k |
 | `TG_TradinGo_Reale_Personale.set` | conti reali personali | 10%, equity catturata al primo attach | off | ivan, stark (da scegliere) | template: lotti, suffisso simbolo e % vanno adattati al broker |
@@ -219,8 +278,11 @@ Dettaglio delle regole iFunds e procedure di test dei guard: [`IFUNDS_SETUP.md`]
 
 | Macchina | Componente | Preset |
 |---|---|---|
-| Contabo `144.91.76.28` | bridge Python + terminale Vantage demo | `TG_TradinGo_Vantage_Demo.set` |
-| Gamehosting `100.74.9.8` | terminale Ultima demo | `TG_TradinGo_Ultima_iFunds_Demo.set` |
+| Gamehosting `100.74.9.8` | bridge Python + terminale Vantage demo | `TG_TradinGo_Vantage_Demo.set` |
+| Gamehosting `100.74.9.8` | terminale Xlence reale: **dismesso dal 16/11/2026** (conto azzerato, `Contabo_Xlence_MT5` `enabled=false` nel bridge) | `TG_TradinGo_Xlence_Reale_IVAN.set` (storico) |
+| Gamehosting `100.74.9.8` | terminale Ultima Markets / Agorà demo (IVAN + Hybrid) | preset del terminale (Hybrid 0.02/gamba, vedi 2.34) |
+| Gamehosting `100.74.9.8` | terminale Axi reale (solo IVAN) | `TG_TradinGo_Axi_Reale_IVAN.set` |
+| Contabo `144.91.76.28` | offline da 10/2026: bridge e task MT5 devono restare disabilitati | — |
 
 Il deploy non è automatico: `C:\StatArb\scripts\deploy_tg_tradingo_to_vps.ps1` per il bridge,
 copia manuale del `.mq5` + compilazione in MetaEditor per l'EA.

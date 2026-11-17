@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradinGo"
 #property link      "https://github.com/daniele4trading-boop/tradingo_system"
-#property version   "2.28"
+#property version   "2.39"
 #property description "JSON signal executor for TG TradinGo bridge"
 
 //--- unica fonte di verita' della versione: allineata a BRIDGE_VERSION
-#define EA_VERSION "2.28"
+#define EA_VERSION "2.39"
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -33,17 +33,36 @@ input double InpLotStark           = 0.0;
 input double InpLotGold            = 0.0;
 input double InpLotOro             = 0.0;
 input double InpLotForex           = 0.0;
+input double InpLotHybridGold      = 0.0;   // v2.31 CH_HYBRIDGOLD (Hybrid | Setup Gold)
+input double InpLotHybridFx        = 0.0;   // v2.31 CH_HYBRIDFX (Hybrid | Setup Forex)
+input double InpLotIvanBtc         = 0.0;   // v2.34 CH_IVANBTC
+input double InpLotSertorio        = 0.0;   // v2.36 CH_SERTORIO (zone al tocco)
+// v2.34: true -> gli override InpLot* sono la size TOTALE del segnale, divisa
+// sui TP e arrotondata per difetto allo step (0.40 con 4 TP -> 0.10 a TP).
+// false -> override = lotto per ogni TP (comportamento storico).
+input bool   InpLotPerSignal       = false;
+input int    InpMaxLegsIvan        = 0;     // v2.38 max gambe per setup Ivan (0 = tutte, 3 = TP1..TP3)
 // Short comment tags (empty = default CHANNEL name). Moneta: IT / AS
 input string InpTagIvan            = "IT";
 input string InpTagStark           = "AS";
 input string InpTagGold            = "";
 input string InpTagOro             = "";
 input string InpTagForex           = "";
+input string InpTagHybridGold      = "HG";
+input string InpTagHybridFx        = "HF";
+input string InpTagSertorio        = "SZ";   // v2.36
 input bool   InpCommentUseTgPrefix = false; // false -> IT-T1 ; true -> TG-IT-T1
 input int    InpMaxSlippagePoints  = 50;
 input int    InpPollMs             = 500;
 input int    InpRangeTolerancePoints = 200;
 input int    InpOroRangeTolerancePoints = 250; // 0 = use InpRangeTolerancePoints
+// An OPEN cancelled because the market is already beyond range+tolerance is
+// kept pending and retried on every tick for this many seconds: the trade
+// opens as soon as the price comes back within tolerance (29/10: SELL
+// 4028-4033 posted with price at 4025.5, back in zone a minute later, then
+// down to TP3). Dropped if the market crosses the published SL or TP1, when
+// the window expires or when a new signal arrives on the same channel. 0 = off.
+input int    InpRangeRetrySec         = 300;
 input bool   InpLogCancelledSignals  = true;
 input bool   InpClearSignalAfterProcess = true;
 input bool   InpIgnoreExistingOnInit = true; // skip+clear JSON already present at attach
@@ -78,12 +97,26 @@ input bool   InpBeNeverWorseThanEntry = true;
 // entry) the break-even stays pending and is retried on every tick until the
 // market allows it; a position that closes meanwhile is simply dropped.
 input bool   InpBePendingRetry        = true;
+// Minimum seconds between two retries of the pending break-even queue (09/10:
+// retry on every tick produced thousands of BE_PENDING lines for 20 min).
+input int    InpBePendingRetrySec     = 5;
 // CHECK_AND_BE may carry be_price = the entry published by the channel. The
-// real fill is often 2-3$ worse (2026-09-14: BE at fill 4278.1 stopped at once,
-// the channel's 4276 was never touched). Use be_price when it is legal vs the
-// market and within this gap from the fill; otherwise fall back to the fill.
+// break-even stop is the WIDER of our fill and that entry (BUY: the lower,
+// SELL: the higher), never tighter than our fill: 28/10 fill 4033.26, channel
+// entry 4036 -> SL 4036 stopped T3/T4 on a 3$ dip before TP3/TP4. When the
+// channel entered better than us (its entry beyond our fill) the stop follows
+// it, locking a small loss vs our fill, capped at InpBeSignalEntryMaxGapPoints
+// from the fill (200 pts = 2$/oz = 2$ per 0.01 lot): beyond the cap the stop
+// sits exactly at fill -/+ cap. BE_FILL_IF_BETTER keeps the legacy behaviour
+// (the tighter of the two).
 input bool   InpBeUseSignalEntry     = true;
-input int    InpBeSignalEntryMaxGapPoints = 500;
+input int    InpBeSignalEntryMaxGapPoints = 200;
+enum ENUM_BE_MODE { BE_FILL_IF_BETTER = 0, BE_SIGNAL_ENTRY = 1 };
+input ENUM_BE_MODE InpBeMode          = BE_SIGNAL_ENTRY;
+// UPDATE_OPEN re-fills a planned slot only if it was never opened for this
+// signal: a leg already closed (TP/SL/BE) must not be reopened (09/10: T1 took
+// TP1, the TP update 20 s later reopened it). Lookback for the history check.
+input int    InpUpdateFillHistoryHours = 48;
 // UPDATE_SL moving the stop further away is a legitimate channel decision (give
 // the price room), but the lot size was computed on the previous risk: cap the
 // new stop at this multiple of the open->current SL distance instead of
@@ -92,7 +125,10 @@ input double InpMaxSlWidenFactor = 2.0;
 // Seconds within which positions opened together count as one batch
 // (CLOSE_SELECTIVE keep=ALL_BUT_NEWEST closes only the newest batch).
 input int    InpBatchWindowSec      = 120;
+// T1 chiusa in profitto (TP preso o "anticipiamo il TP1") -> SL a BE sulle altre
+// gambe dello stesso segnale, con la regola di BeTargetForPosition.
 input bool   InpAutoBreakEvenOnTp1 = true;
+input string InpAutoBeTp1Tags      = "HG,HF"; // tag canali (commento) con BE automatico
 input ulong  InpMagicOffset        = 0;
 
 //--- v2.10 hardening / journal inputs
@@ -130,8 +166,23 @@ input double InpDdFloatStark         = 10.4;
 input double InpDdFloatGold          = 15.0;
 input double InpDdFloatOro           = 12.4;
 input double InpDdFloatForex         = 20.0;
+input double InpDdFloatHybridGold    = 15.0;
+input double InpDdFloatHybridFx      = 20.0;
+input double InpDdFloatSertorio      = 15.0;
 // Concurrent exposure cap across all TG positions. 0 = off.
 input double InpMaxConcurrentLots    = 0.0;
+// v2.30 daily drawdown guard (prop rules, e.g. Agora 4%). Reference = max(balance,
+// equity) at the daily reset (InpDdDailyResetHourNY New York time, DST handled).
+// Equity <= ref*(1 - DailyPct*CloseAtPct) closes all TG positions and blocks opens
+// until the next reset; <= ref*(1 - DailyPct*BlockNewAtPct) only blocks opens.
+// Account equity includes positions of other EAs on the same account. 0 = off.
+input double InpDdDailyPct           = 0.0;
+input double InpDdDailyCloseAtPct    = 75.0;
+input double InpDdDailyBlockNewAtPct = 50.0;
+input int    InpDdDailyResetHourNY   = 17;
+// v2.30 trailing max DD: at each daily reset the max-DD reference (start) rises to
+// max(balance, equity) if higher (Agora: highest end-of-day value). false = static.
+input bool   InpDdTrailEod           = false;
 
 //--- trade objects
 CTrade         g_trade;
@@ -418,6 +469,36 @@ ulong TradeMagic(const int magicBase, const int index)
    return (ulong)magicBase + (ulong)index + InpMagicOffset;
   }
 
+// Slot (1..5 = T1..T5) di una posizione dal magic; 0 se non nostra.
+int SlotFromMagic(const ulong magic, const int magicBase)
+  {
+   for(int i = 1; i <= 5; i++)
+      if(magic == TradeMagic(magicBase, i))
+         return i;
+   return 0;
+  }
+
+// Con fill tutti uguali "peggiori/migliori" non esiste a prezzo: per regola
+// operativa le gambe T2 e T4 sono le "peggiori" (BE/chiusura), T1 e T3 le
+// "migliori" (restano). HIGHEST/LOWEST si traducono per direzione.
+bool EqualFillIsWorstSlot(const int slot)
+  {
+   return (slot == 2 || slot == 4);
+  }
+
+bool GroupIsWorst(const string group, const string direction)
+  {
+   if(group == "WORST")
+      return true;
+   if(group == "BEST")
+      return false;
+   if(group == "HIGHEST")
+      return (direction == "BUY");   // BUY: fill alto = peggiore
+   if(group == "LOWEST")
+      return (direction == "SELL");  // SELL: fill basso = peggiore
+   return false;
+  }
+
 //+------------------------------------------------------------------+
 bool IsOurPosition(const ulong ticket, const int magicBase, const int maxTrades)
   {
@@ -644,27 +725,190 @@ bool ApplyBreakEvenSLSignal(const ulong ticket, const double signalEntry)
    return ApplyBreakEvenSLEx(ticket, false, signalEntry);
   }
 
-// Break-even level preferred for a position: the more protective between the
-// fill and the channel's published entry (fill better than the entry -> fill,
-// fill worse -> the entry, so the stop matches the channel's), provided the
-// entry is requested and close enough to the fill; otherwise the fill itself.
+// Break-even level for a position. BE_SIGNAL_ENTRY: the wider of fill and the
+// channel's entry, at most InpBeSignalEntryMaxGapPoints beyond the fill; never
+// tighter than the fill. BE_FILL_IF_BETTER (legacy): the tighter of the two.
 double BeTargetForPosition(const string direction, const double fill, const double signalEntry)
   {
    if(!InpBeUseSignalEntry || signalEntry <= 0.0)
       return fill;
+   bool buy = (direction == "BUY");
+   if(InpBeMode == BE_SIGNAL_ENTRY)
+     {
+      bool wider = buy ? (signalEntry < fill) : (signalEntry > fill);
+      if(!wider)
+         return fill;
+      double cap = (InpBeSignalEntryMaxGapPoints > 0) ? InpBeSignalEntryMaxGapPoints * g_sym.Point() : 0.0;
+      if(cap > 0.0 && MathAbs(signalEntry - fill) > cap)
+         return NormalizeDouble(buy ? fill - cap : fill + cap, (int)g_sym.Digits());
+      return signalEntry;
+     }
    double gapPts = MathAbs(signalEntry - fill) / g_sym.Point();
    if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
       return fill;
-   if(direction == "BUY")
-      return MathMax(fill, signalEntry);
-   return MathMin(fill, signalEntry);
+   return buy ? MathMax(fill, signalEntry) : MathMin(fill, signalEntry);
+  }
+
+// Pending off-market opens (one per channel file), see InpRangeRetrySec.
+string   g_rrFile[];
+string   g_rrJson[];
+string   g_rrSymbol[];
+string   g_rrDir[];
+double   g_rrLo[];
+double   g_rrHi[];
+double   g_rrSl[];
+double   g_rrTp1[];
+datetime g_rrExpiry[];
+double   g_rrDriftPct[];   // >0: entry-drift guard (% of SL distance) instead of range tolerance
+bool     g_rrRetrying = false;
+
+void RangeRetryRemove(const int i)
+  {
+   int n = ArraySize(g_rrFile);
+   for(int k = i; k < n - 1; k++)
+     {
+      g_rrFile[k] = g_rrFile[k + 1];
+      g_rrJson[k] = g_rrJson[k + 1];
+      g_rrSymbol[k] = g_rrSymbol[k + 1];
+      g_rrDir[k] = g_rrDir[k + 1];
+      g_rrLo[k] = g_rrLo[k + 1];
+      g_rrHi[k] = g_rrHi[k + 1];
+      g_rrSl[k] = g_rrSl[k + 1];
+      g_rrTp1[k] = g_rrTp1[k + 1];
+      g_rrExpiry[k] = g_rrExpiry[k + 1];
+      g_rrDriftPct[k] = g_rrDriftPct[k + 1];
+     }
+   ArrayResize(g_rrFile, n - 1);
+   ArrayResize(g_rrJson, n - 1);
+   ArrayResize(g_rrSymbol, n - 1);
+   ArrayResize(g_rrDir, n - 1);
+   ArrayResize(g_rrLo, n - 1);
+   ArrayResize(g_rrHi, n - 1);
+   ArrayResize(g_rrSl, n - 1);
+   ArrayResize(g_rrTp1, n - 1);
+   ArrayResize(g_rrExpiry, n - 1);
+   ArrayResize(g_rrDriftPct, n - 1);
+  }
+
+void RangeRetryDrop(const string channelFile, const string reason)
+  {
+   for(int i = ArraySize(g_rrFile) - 1; i >= 0; i--)
+     {
+      if(g_rrFile[i] != channelFile)
+         continue;
+      Print("[TradinGo] RANGE_RETRY_DROPPED ", channelFile, " ", g_rrSymbol[i], " ", g_rrDir[i],
+            " reason=", reason);
+      RangeRetryRemove(i);
+     }
+  }
+
+void RangeRetryAdd(const string channelFile, const string json, const string symbol,
+                   const string direction, const double lo, const double hi,
+                   const double driftPct = 0.0)
+  {
+   if(InpRangeRetrySec <= 0 || g_rrRetrying)
+      return;
+   RangeRetryDrop(channelFile, "replaced");
+   int n = ArraySize(g_rrFile);
+   ArrayResize(g_rrFile, n + 1);
+   ArrayResize(g_rrJson, n + 1);
+   ArrayResize(g_rrSymbol, n + 1);
+   ArrayResize(g_rrDir, n + 1);
+   ArrayResize(g_rrLo, n + 1);
+   ArrayResize(g_rrHi, n + 1);
+   ArrayResize(g_rrSl, n + 1);
+   ArrayResize(g_rrTp1, n + 1);
+   ArrayResize(g_rrExpiry, n + 1);
+   ArrayResize(g_rrDriftPct, n + 1);
+   g_rrFile[n] = channelFile;
+   g_rrDriftPct[n] = driftPct;
+   g_rrJson[n] = json;
+   g_rrSymbol[n] = symbol;
+   g_rrDir[n] = direction;
+   g_rrLo[n] = lo;
+   g_rrHi[n] = hi;
+   g_rrSl[n] = JsonGetNumber(json, "sl");
+   double tps[];
+   g_rrTp1[n] = (JsonGetNumberArray(json, "tp_levels", tps) && ArraySize(tps) > 0) ? tps[0] : 0.0;
+   g_rrExpiry[n] = TimeCurrent() + InpRangeRetrySec;
+   if(driftPct > 0.0)
+      Print("[TradinGo] RANGE_RETRY_PENDING ", channelFile, " ", symbol, " ", direction,
+            " entry=", DoubleToString(lo, (int)g_sym.Digits()), " max_drift=",
+            DoubleToString(driftPct, 1), "% of SL distance for ", InpRangeRetrySec,
+            "s — opens when price is back near the entry");
+   else
+      Print("[TradinGo] RANGE_RETRY_PENDING ", channelFile, " ", symbol, " ", direction,
+            " range=[", DoubleToString(lo, (int)g_sym.Digits()), ",",
+            DoubleToString(hi, (int)g_sym.Digits()), "] for ", InpRangeRetrySec,
+            "s — opens when price is back within tolerance");
+  }
+
+void ProcessRangeRetry()
+  {
+   for(int i = ArraySize(g_rrFile) - 1; i >= 0; i--)
+     {
+      if(TimeCurrent() > g_rrExpiry[i])
+        {
+         Print("[TradinGo] RANGE_RETRY_EXPIRED ", g_rrFile[i], " ", g_rrSymbol[i], " ", g_rrDir[i],
+               " after ", InpRangeRetrySec, "s");
+         RangeRetryRemove(i);
+         continue;
+        }
+      g_sym.Name(g_rrSymbol[i]);
+      g_sym.RefreshRates();
+      double px = (g_rrDir[i] == "BUY") ? g_sym.Ask() : g_sym.Bid();
+      if(g_rrSl[i] > 0.0 && ((g_rrDir[i] == "BUY") ? (px <= g_rrSl[i]) : (px >= g_rrSl[i])))
+        {
+         Print("[TradinGo] RANGE_RETRY_DROPPED ", g_rrFile[i], " ", g_rrSymbol[i], " ", g_rrDir[i],
+               " reason=price_beyond_sl price=", DoubleToString(px, (int)g_sym.Digits()),
+               " sl=", DoubleToString(g_rrSl[i], (int)g_sym.Digits()));
+         RangeRetryRemove(i);
+         continue;
+        }
+      if(g_rrTp1[i] > 0.0 && ((g_rrDir[i] == "BUY") ? (px >= g_rrTp1[i]) : (px <= g_rrTp1[i])))
+        {
+         Print("[TradinGo] RANGE_RETRY_DROPPED ", g_rrFile[i], " ", g_rrSymbol[i], " ", g_rrDir[i],
+               " reason=tp1_reached price=", DoubleToString(px, (int)g_sym.Digits()),
+               " tp1=", DoubleToString(g_rrTp1[i], (int)g_sym.Digits()));
+         RangeRetryRemove(i);
+         continue;
+        }
+      if(g_rrDriftPct[i] > 0.0)
+        {
+         double slDist = MathAbs(g_rrLo[i] - g_rrSl[i]);
+         if(slDist > 0.0 && MathAbs(px - g_rrLo[i]) / slDist * 100.0 > g_rrDriftPct[i])
+            continue;
+        }
+      else
+        {
+         double dist = 0.0;
+         int maxTol = RangeToleranceForChannel(g_rrFile[i], g_rrJson[i]);
+         if(EvaluateEntryRange(g_rrSymbol[i], g_rrDir[i], g_rrLo[i], g_rrHi[i], maxTol, px, dist) == ENTRY_CANCELLED)
+            continue;
+        }
+      string file = g_rrFile[i];
+      string json = g_rrJson[i];
+      string action = JsonGetString(json, "action");
+      Print("[TradinGo] RANGE_RETRY_EXECUTE ", file, " ", g_rrSymbol[i], " ", g_rrDir[i],
+            " action=", action, " price=", DoubleToString(px, (int)g_sym.Digits()),
+            " waited=", (int)(TimeCurrent() - (g_rrExpiry[i] - InpRangeRetrySec)), "s");
+      RangeRetryRemove(i);
+      g_rrRetrying = true;
+      if(action == "UPDATE_OPEN")
+         HandleUpdateOpen(file, json);
+      else
+         HandleOpen(file, json);
+      g_rrRetrying = false;
+     }
   }
 
 datetime g_beLastRetry = 0;
 
 void ProcessBePending()
   {
-   if(ArraySize(g_bePending) == 0 || TimeCurrent() == g_beLastRetry)
+   if(ArraySize(g_bePending) == 0)
+      return;
+   if(TimeCurrent() - g_beLastRetry < MathMax(1, InpBePendingRetrySec))
       return;
    g_beLastRetry = TimeCurrent();
    for(int i = ArraySize(g_bePending) - 1; i >= 0; i--)
@@ -697,18 +941,19 @@ bool ApplyBreakEvenSLEx(const ulong ticket, const bool fromQueue, const double s
    double fill = g_pos.PriceOpen();
    double be = BeTargetForPosition(direction, fill, signalEntry);
    int digits = (int)g_sym.Digits();
-   if(signalEntry > 0.0 && MathAbs(be - signalEntry) > g_sym.Point())
+   if(!fromQueue && signalEntry > 0.0 && MathAbs(be - signalEntry) > g_sym.Point())
      {
-      double gapPts = MathAbs(signalEntry - fill) / g_sym.Point();
-      if(InpBeSignalEntryMaxGapPoints > 0 && gapPts > InpBeSignalEntryMaxGapPoints)
-         Print("[TradinGo] BE_SIGNAL_ENTRY_TOO_FAR ticket=", ticket,
+      if(MathAbs(be - fill) <= g_sym.Point())
+         Print("[TradinGo] BE_AT_FILL ticket=", ticket,
+               " signal_entry=", DoubleToString(signalEntry, digits),
+               " fill=", DoubleToString(fill, digits), " (", direction,
+               ") -> signal entry not wider than fill, BE at fill");
+      else
+         Print("[TradinGo] BE_SIGNAL_ENTRY_CAPPED ticket=", ticket,
                " signal_entry=", DoubleToString(signalEntry, digits),
                " fill=", DoubleToString(fill, digits),
-               " max_gap_pts=", InpBeSignalEntryMaxGapPoints, " -> BE at fill");
-      else
-         Print("[TradinGo] BE_FILL_BETTER ticket=", ticket,
-               " signal_entry=", DoubleToString(signalEntry, digits),
-               " fill=", DoubleToString(fill, digits), " (", direction, ") -> BE at fill");
+               " max_gap_pts=", InpBeSignalEntryMaxGapPoints,
+               " -> sl=", DoubleToString(be, digits));
      }
    int buffers[3];
    buffers[0] = InpStopBufferPoints;
@@ -727,7 +972,8 @@ bool ApplyBreakEvenSLEx(const ulong ticket, const bool fromQueue, const double s
       // to the fill for this attempt instead of giving up the break-even.
       if(InpBeNeverWorseThanEntry && worseThanEntry && MathAbs(be - fill) > tol)
         {
-         Print("[TradinGo] BE_SIGNAL_ENTRY_ILLEGAL ticket=", ticket,
+         if(!fromQueue)
+            Print("[TradinGo] BE_SIGNAL_ENTRY_ILLEGAL ticket=", ticket,
                " signal_entry=", DoubleToString(be, digits),
                " would_be_sl=", DoubleToString(nsl, digits),
                " fill=", DoubleToString(fill, digits), " (", direction, ") -> BE at fill");
@@ -802,6 +1048,19 @@ string ChannelKeyFromFile(const string channelFile, const string json)
   }
 
 //+------------------------------------------------------------------+
+// Leg cap per channel (Agorà: Ivan TP1..TP3 only, TP4 never opened).
+void CapChannelLegs(const string channelFile, const string json, double &tps[], int &trades)
+  {
+   int cap = (ChannelKeyFromFile(channelFile, json) == "ivan") ? InpMaxLegsIvan : 0;
+   if(cap <= 0)
+      return;
+   if(ArraySize(tps) > cap)
+      ArrayResize(tps, cap);
+   if(trades > cap)
+      trades = cap;
+  }
+
+//+------------------------------------------------------------------+
 string ChannelShortTag(const string channelFile, const string json)
   {
    string key = ChannelKeyFromFile(channelFile, json);
@@ -815,6 +1074,12 @@ string ChannelShortTag(const string channelFile, const string json)
       return InpTagOro;
    if(key == "forex" && InpTagForex != "")
       return InpTagForex;
+   if(key == "hybridgold" && InpTagHybridGold != "")
+      return InpTagHybridGold;
+   if(key == "hybridfx" && InpTagHybridFx != "")
+      return InpTagHybridFx;
+   if(key == "sertorio" && InpTagSertorio != "")
+      return InpTagSertorio;
 
    string cid = JsonGetString(json, "channel_id");
    if(cid != "")
@@ -843,8 +1108,47 @@ double LotOverrideForChannel(const string channelFile, const string json)
       return InpLotOro;
    if(key == "forex")
       return InpLotForex;
+   if(key == "hybridgold")
+      return InpLotHybridGold;
+   if(key == "hybridfx")
+      return InpLotHybridFx;
+   if(key == "ivanbtc")
+      return InpLotIvanBtc;
+   if(key == "sertorio")
+      return InpLotSertorio;
    return 0.0;
   }
+// Override lot with the bridge's size reduction ("piccole size" -> lot_factor
+// 0.5), which the bridge already applied to fixed_lot but an override replaces.
+double ChannelLotOverride(const string channelFile, const string json)
+  {
+   double ov = LotOverrideForChannel(channelFile, json);
+   if(ov <= 0.0)
+      return 0.0;
+   double f = JsonGetNumber(json, "lot_factor");
+   if(f > 0.0 && f < 1.0)
+      ov *= f;
+   return ov;
+  }
+
+//+------------------------------------------------------------------+
+// InpLotPerSignal: split the override lot of one signal across its n TP legs.
+double LotForTpLeg(const string symbol, const double lot, const int n,
+                   const string channelFile, const string json)
+  {
+   if(!InpLotPerSignal || n <= 1 || LotOverrideForChannel(channelFile, json) <= 0.0)
+      return lot;
+   double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   if(step <= 0)
+      step = 0.01;
+   double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double leg = MathFloor(lot / n / step + 1e-9) * step;
+   if(leg < minLot)
+      leg = minLot;
+   return NormalizeDouble(leg, 2);
+  }
+
+//+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 string BuildTradeComment(const string channelTag, const int tpIndex, const string json = "")
@@ -978,8 +1282,10 @@ bool StopsOnCorrectSide(const string direction, const double price,
 //| this check the stops get clamped to the legal side and the        |
 //| position opens only to be closed at once, paying the spread.      |
 //+------------------------------------------------------------------+
+// Only entry and SL are checked: a far TP (IVAN TP4 4110 with gold at 4199,
+// 2.1%) must not block the open, the channel corrects it afterwards if wrong.
 // The payload may carry max_level_deviation_pct: BTC/XAG setups (CH_IVANBTC)
-// publish TPs 10-30% away from price, which the 2% gold default would cancel.
+// publish entry/SL far from price, which the 2% gold default would cancel.
 double MaxLevelDeviationPct(const string json)
   {
    double fromJson = JsonGetNumber(json, "max_level_deviation_pct");
@@ -989,17 +1295,16 @@ double MaxLevelDeviationPct(const string json)
   }
 
 bool LevelsNearMarket(const string symbol, const double price,
-                      const double sl, const double tp, const double entry,
+                      const double sl, const double entry,
                       const double maxPct, double &outWorstPct)
   {
    outWorstPct = 0.0;
    if(maxPct <= 0.0 || price <= 0.0)
       return true;
-   double levels[3];
+   double levels[2];
    levels[0] = sl;
-   levels[1] = tp;
-   levels[2] = entry;
-   for(int i = 0; i < 3; i++)
+   levels[1] = entry;
+   for(int i = 0; i < 2; i++)
      {
       if(levels[i] <= 0.0)
          continue;
@@ -1040,7 +1345,7 @@ bool OpenMarket(const string symbol, const string direction, const double lot,
    double devPct = 0.0;
    double maxDevPct = MaxLevelDeviationPct(json);
    if(!LevelsNearMarket(symbol, price,
-                        sl, tp, SignalEntryFromJson(json, rangeLo, rangeHi), maxDevPct, devPct))
+                        sl, SignalEntryFromJson(json, rangeLo, rangeHi), maxDevPct, devPct))
      {
       Print("[TradinGo] Open skipped ", symbol, " ", direction,
             " off-market levels price=", DoubleToString(price, (int)g_sym.Digits()),
@@ -1193,6 +1498,7 @@ bool TryExecuteWithEntryRange(const string channelFile, const string json,
    LogCancelledSignal(channelFile, json, symbol, direction, lo, hi, price,
                       outDistancePoints, maxTol);
    outEntryStatus = "CANCELLED_RANGE";
+   RangeRetryAdd(channelFile, json, symbol, direction, lo, hi);
    return false;
   }
 
@@ -1259,13 +1565,14 @@ bool OpenSplitTrades(const string symbol, const string direction,
    int n = ArraySize(tps);
    if(n <= 0)
       n = 1;
+   double legLot = LotForTpLeg(symbol, lot, n, channelFile, json);
    bool any = false;
    for(int i = 0; i < n; i++)
      {
       double tp = (i < ArraySize(tps)) ? tps[i] : 0.0;
       ulong magic = TradeMagic(magicBase, i + 1);
       string comment = BuildTradeComment(channelTag, i + 1, json);
-      if(OpenMarket(symbol, direction, lot, sl, tp, magic, comment,
+      if(OpenMarket(symbol, direction, legLot, sl, tp, magic, comment,
                     channelFile, json, entryStatus, rangeLo, rangeHi,
                     distancePoints, i + 1))
          any = true;
@@ -1368,6 +1675,53 @@ double NakedFallbackSl(const string symbol, const string direction)
   }
 
 //+------------------------------------------------------------------+
+// v2.39 size add-on (interprete Ivan): si aggiunge al setup già aperto solo se
+// il prezzo è nel range del segnale o migliore (BUY ask <= max, SELL bid >= min;
+// entry singola = quel prezzo). Fuori range non si apre niente, nessun retry.
+bool EntryOrBetterAllows(const string channelFile, const string json,
+                         const string symbol, const string direction,
+                         const int magicBase, const double lo, const double hi)
+  {
+   string ch = JsonGetString(json, "channel_id");
+   if(CountOurPositions(symbol, magicBase, 5) <= 0)
+     {
+      Print("[TradinGo] SIZE_ADD_SKIPPED ", ch, " ", symbol, " — setup non più aperto");
+      return false;
+     }
+   double entry = JsonGetNumber(json, "entry");
+   double limit = (direction == "BUY") ? ((hi > 0.0) ? hi : entry)
+                                       : ((lo > 0.0) ? lo : entry);
+   if(limit <= 0.0)
+     {
+      Print("[TradinGo] SIZE_ADD_SKIPPED ", ch, " ", symbol, " — entry assente");
+      return false;
+     }
+   g_sym.Name(symbol);
+   g_sym.RefreshRates();
+   double price = (direction == "BUY") ? g_sym.Ask() : g_sym.Bid();
+   int digits = (int)g_sym.Digits();
+   bool ok = (direction == "BUY") ? (price <= limit) : (price >= limit);
+   if(!ok)
+     {
+      double point = g_sym.Point();
+      if(point <= 0.0)
+         point = _Point;
+      double dist = MathAbs(price - limit) / point;
+      Print("[TradinGo] SIZE_ADD_SKIPPED ", ch, " ", symbol, " ", direction,
+            " price=", DoubleToString(price, digits),
+            " limit=", DoubleToString(limit, digits),
+            " — prezzo fuori range, niente add-on");
+      AppendSignalStat(channelFile, json, symbol, direction, "CANCELLED_SIZE_ADD",
+                       lo, hi, limit, price, dist, 0, 0);
+      return false;
+     }
+   Print("[TradinGo] SIZE_ADD_OK ", ch, " ", symbol, " ", direction,
+         " price=", DoubleToString(price, digits),
+         " limit=", DoubleToString(limit, digits));
+   return true;
+  }
+
+//+------------------------------------------------------------------+
 bool HandleOpen(const string channelFile, const string json)
   {
    string action = JsonGetString(json, "action");
@@ -1383,10 +1737,11 @@ bool HandleOpen(const string channelFile, const string json)
    int trades = JsonGetInt(json, "trades");
    if(trades <= 0)
       trades = MathMax(1, ArraySize(tps));
+   CapChannelLegs(channelFile, json, tps, trades);
    double fixedLot = JsonGetNumber(json, "fixed_lot");
    if(fixedLot <= 0)
       fixedLot = 0.20;
-   double ov = LotOverrideForChannel(channelFile, json);
+   double ov = ChannelLotOverride(channelFile, json);
    if(ov > 0.0)
       fixedLot = ov;
    fixedLot = DdSizedLot(symbol, ChannelKeyFromFile(channelFile, json), fixedLot);
@@ -1426,9 +1781,14 @@ bool HandleOpen(const string channelFile, const string json)
       rangeHi = MathMax(entryRange[0], entryRange[1]);
      }
 
-   string entryStatus = "EXECUTED_DIRECT";
+   bool orBetter = JsonGetBool(json, "entry_or_better");
+   if(orBetter && !EntryOrBetterAllows(channelFile, json, symbol, direction, magicBase,
+                                       rangeLo, rangeHi))
+      return true;
+
+   string entryStatus = orBetter ? "EXECUTED_SIZE_ADD" : "EXECUTED_DIRECT";
    double distPoints = 0.0;
-   if(rangeHi > rangeLo)
+   if(rangeHi > rangeLo && !orBetter)
      {
       if(!TryExecuteWithEntryRange(channelFile, json, symbol, direction, rangeLo, rangeHi,
                                    entryStatus, distPoints))
@@ -1475,11 +1835,35 @@ bool HandleOpen(const string channelFile, const string json)
                           JsonGetNumber(json, "entry"), sl))
       return true;
 
+   // Runner legs (Hybrid "Tp3: open"): slots beyond the TPs, same SL, no TP.
+   int nTp = ArraySize(tps);
+   if(nTp > 0 && trades > nTp)
+     {
+      int nLegs = MathMin(trades, 5);
+      ArrayResize(tps, nLegs);
+      for(int k = nTp; k < nLegs; k++)
+         tps[k] = 0.0;
+     }
+
    return OpenSplitTrades(symbol, direction, lot, sl, tps, magicBase,
                           channelFile, json, entryStatus, rangeLo, rangeHi, distPoints);
   }
 
 //+------------------------------------------------------------------+
+// True when the position's SL is already at/beyond its open price (BE or locked profit).
+bool SlProtectsEntry(const ulong ticket)
+  {
+   if(!PositionSelectByTicket(ticket))
+      return false;
+   double cur = PositionGetDouble(POSITION_SL);
+   if(cur <= 0.0)
+      return false;
+   double open = PositionGetDouble(POSITION_PRICE_OPEN);
+   double pt = SymbolInfoDouble(PositionGetString(POSITION_SYMBOL), SYMBOL_POINT);
+   bool buy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+   return buy ? (cur >= open - pt) : (cur <= open + pt);
+  }
+
 bool HandleUpdateOpen(const string channelFile, const string json)
   {
    string direction = JsonGetString(json, "direction");
@@ -1491,10 +1875,11 @@ bool HandleUpdateOpen(const string channelFile, const string json)
    int trades = JsonGetInt(json, "trades");
    if(trades <= 0)
       trades = MathMax(1, ArraySize(tps));
+   CapChannelLegs(channelFile, json, tps, trades);
    double fixedLot = JsonGetNumber(json, "fixed_lot");
    if(fixedLot <= 0)
       fixedLot = 0.10;
-   double ovUpd = LotOverrideForChannel(channelFile, json);
+   double ovUpd = ChannelLotOverride(channelFile, json);
    if(ovUpd > 0.0)
       fixedLot = ovUpd;
    double sized = DdSizedLot(symbol, ChannelKeyFromFile(channelFile, json), fixedLot);
@@ -1534,7 +1919,15 @@ bool HandleUpdateOpen(const string channelFile, const string json)
       if(!EntryDriftAllows(channelFile, json, symbol, direction, updEntry, sl,
                            InpUpdateOpenMaxDriftPctOfSl, "UPDATE_OPEN_CANCELLED",
                            "CANCELLED_UPDATE_OPEN_DRIFT"))
+        {
+         // v2.35: keep the setup pending (InpRangeRetrySec) and open it when the
+         // price comes back within the drift tolerance (Hybrid 21/10 and 27/10:
+         // cancelled at 46-48% drift, price returned to the entry, then TP1/TP2).
+         if(updEntry > 0.0 && sl > 0.0)
+            RangeRetryAdd(channelFile, json, symbol, direction, updEntry, updEntry,
+                          InpUpdateOpenMaxDriftPctOfSl);
          return true;
+        }
       Print("[TradinGo] UPDATE_OPEN but no positions — opening fresh");
       return OpenSplitTrades(symbol, direction, lot, sl, tps, magicBase,
                              channelFile, json, entryStatus, rangeLo, rangeHi, distPoints);
@@ -1550,6 +1943,7 @@ bool HandleUpdateOpen(const string channelFile, const string json)
    if(n > 5)
       n = 5;
 
+   bool levelsOnly = JsonGetBool(json, "levels_only");
    bool any = false;
    for(int i = 1; i <= n; i++)
      {
@@ -1558,17 +1952,35 @@ bool HandleUpdateOpen(const string channelFile, const string json)
       double tp = (i - 1 < ArraySize(tps)) ? tps[i - 1] : 0.0;
       if(ticket > 0)
         {
-         if(ModifyPositionSLTP(ticket, sl, tp))
+         double useSl = sl;
+         // Edited signal levels never undo a stop already at BE or in profit.
+         if(levelsOnly && SlProtectsEntry(ticket))
+            useSl = 0.0;
+         if(ModifyPositionSLTP(ticket, useSl, tp))
+           {
             any = true;
+            if(levelsOnly)
+               Print("[TradinGo] UPDATE_OPEN levels_only ticket=", ticket, " slot=", i,
+                     " sl=", (useSl > 0.0 ? DoubleToString(useSl, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) : "kept"),
+                     " tp=", (tp > 0.0 ? DoubleToString(tp, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) : "kept"));
+           }
         }
       else
         {
+         if(levelsOnly)
+            continue;
          if(IsOpenBlocked(symbol))
             continue;
+         if(SlotClosedForSignal(symbol, magic, JsonGetString(json, "signal_id")))
+           {
+            Print("[TradinGo] UPDATE_OPEN slot=", i, "/", n, " magic=", magic,
+                  " already closed for this signal — not reopened");
+            continue;
+           }
          Print("[TradinGo] UPDATE_OPEN fill missing magic=", magic,
                " slot=", i, "/", n);
-         if(OpenMarket(symbol, direction, lot, sl, tp, magic,
-                       BuildTradeComment(channelTag, i, json),
+         if(OpenMarket(symbol, direction, LotForTpLeg(symbol, lot, n, channelFile, json),
+                       sl, tp, magic, BuildTradeComment(channelTag, i, json),
                        channelFile, json, "EXECUTED_UPDATE_FILL", 0, 0, 0, i))
             any = true;
         }
@@ -1595,6 +2007,8 @@ bool HandleUpdateOpen(const string channelFile, const string json)
       if(planned)
          continue;
       // Re-entry / extra: apply SL only, keep existing TP (tp=0 → curTp).
+      if(levelsOnly && SlProtectsEntry(g_pos.Ticket()))
+         continue;
       ModifyPositionSLTP(g_pos.Ticket(), sl, 0);
      }
    return true;
@@ -1836,7 +2250,7 @@ bool HandleCloseSelective(const string json)
      {
       ENUM_POSITION_TYPE side = (pass == 0 ? POSITION_TYPE_BUY : POSITION_TYPE_SELL);
 
-      double keepPrice = 0.0;
+      double keepPrice = 0.0, hiP = 0.0, loP = 0.0;
       bool found = false;
       for(int i = PositionsTotal() - 1; i >= 0; i--)
         {
@@ -1847,6 +2261,8 @@ bool HandleCloseSelective(const string json)
          if(!IsOurPosition(g_pos.Ticket(), magicBase, 5))
             continue;
          double price = g_pos.PriceOpen();
+         if(!found || price > hiP) hiP = price;
+         if(!found || price < loP) loP = price;
          bool keepHigher = (keep == "HIGHEST")
                            || (keep == "BEST" && side == POSITION_TYPE_SELL);
          if(!found || (keepHigher ? price > keepPrice : price < keepPrice))
@@ -1859,6 +2275,15 @@ bool HandleCloseSelective(const string json)
          continue;
 
       double tol = SymbolInfoDouble(symbol, SYMBOL_POINT) * 10.0;
+      // Fill tutti uguali: il gruppo "da tenere" (keep) sono le migliori T1/T3,
+      // si chiudono le peggiori T2/T4. keep=HIGHEST/LOWEST: se per direzione
+      // coincide con il gruppo peggiore, si tengono T2/T4 e si chiudono T1/T3.
+      bool equalFills = (hiP - loP <= tol);
+      string dirTxt = (side == POSITION_TYPE_BUY ? "BUY" : "SELL");
+      bool keepWorst = equalFills && GroupIsWorst(keep, dirTxt);
+      if(equalFills)
+         Print("[TradinGo] CLOSE_SELECTIVE keep=", keep, " ", symbol,
+               " — fills equal: closing slots ", (keepWorst ? "T1,T3" : "T2,T4"));
       int closed = 0;
       for(int i = PositionsTotal() - 1; i >= 0; i--)
         {
@@ -1868,7 +2293,13 @@ bool HandleCloseSelective(const string json)
             continue;
          if(!IsOurPosition(g_pos.Ticket(), magicBase, 5))
             continue;
-         if(MathAbs(g_pos.PriceOpen() - keepPrice) <= tol)
+         if(equalFills)
+           {
+            int slot = SlotFromMagic((ulong)g_pos.Magic(), magicBase);
+            if(EqualFillIsWorstSlot(slot) == keepWorst)
+               continue;
+           }
+         else if(MathAbs(g_pos.PriceOpen() - keepPrice) <= tol)
             continue;
          ulong ticket = g_pos.Ticket();
          SetTrackReason(ticket, "CLOSE_SELECTIVE_" + keep);
@@ -1939,21 +2370,121 @@ bool HandleCloseHalfBe(const string json)
   }
 
 //+------------------------------------------------------------------+
+// True when a position of this magic, opened for the same signal_id (comment
+// suffix), already exists in history as closed: the slot was filled and then
+// closed by TP/SL/BE, so an UPDATE_OPEN must not fill it again.
+bool SlotClosedForSignal(const string symbol, const ulong magic, const string sid)
+  {
+   if(sid == "" || InpUpdateFillHistoryHours <= 0)
+      return false;
+   if(!HistorySelect(TimeCurrent() - InpUpdateFillHistoryHours * 3600, TimeCurrent() + 60))
+      return false;
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+     {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0)
+         continue;
+      if((ulong)HistoryDealGetInteger(d, DEAL_MAGIC) != magic)
+         continue;
+      if(HistoryDealGetString(d, DEAL_SYMBOL) != symbol)
+         continue;
+      if(HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_IN)
+         continue;
+      string cmt = HistoryDealGetString(d, DEAL_COMMENT);
+      if(StringFind(cmt, "-" + sid) < 0 && StringFind(cmt, sid) < 0)
+         continue;
+      ulong posId = (ulong)HistoryDealGetInteger(d, DEAL_POSITION_ID);
+      bool stillOpen = false;
+      for(int p = PositionsTotal() - 1; p >= 0; p--)
+         if(g_pos.SelectByIndex(p) && (ulong)g_pos.Identifier() == posId)
+           {
+            stillOpen = true;
+            break;
+           }
+      if(!stillOpen)
+         return true;
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+// scope (optional): ALL | BEST | WORST | HIGHEST | LOWEST — restrict the
+// break-even to the entries of that group ("mettiamo a BE le entrate più
+// brutte"): SL moved to BE on those, the others keep their SL. Nothing closes.
+bool BeScopeSelects(const string scope, const string direction,
+                    const double price, const double hi, const double lo)
+  {
+   if(scope == "" || scope == "ALL")
+      return true;
+   double tol = g_sym.Point() * 5;
+   bool isHi = (price >= hi - tol);
+   bool isLo = (price <= lo + tol);
+   if(scope == "HIGHEST")
+      return isHi;
+   if(scope == "LOWEST")
+      return isLo;
+   bool bestIsHi = (direction == "SELL");
+   if(scope == "BEST")
+      return bestIsHi ? isHi : isLo;
+   if(scope == "WORST")
+      return bestIsHi ? isLo : isHi;
+   return true;
+  }
+
 bool HandleCheckAndBe(const string json)
   {
    int magicBase = JsonGetInt(json, "magic_base");
    double signalEntry = JsonGetNumber(json, "be_price");
+   string scope = JsonGetString(json, "scope");
    if(signalEntry > 0.0)
       Print("[TradinGo] CHECK_AND_BE be_price=", DoubleToString(signalEntry, 2),
             " (signal entry, fallback to fill if not legal)");
+   double hi = 0.0, lo = 0.0;
+   string direction = "";
+   int cnt = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       if(!g_pos.SelectByIndex(i))
          continue;
       if(!IsOurPosition(g_pos.Ticket(), magicBase, 5))
          continue;
-      ApplyBreakEvenSLSignal(g_pos.Ticket(), signalEntry);
+      double po = g_pos.PriceOpen();
+      if(cnt == 0 || po > hi)
+         hi = po;
+      if(cnt == 0 || po < lo)
+         lo = po;
+      direction = (g_pos.PositionType() == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+      g_sym.Name(g_pos.Symbol());
+      cnt++;
      }
+   if(cnt == 0)
+      return true;
+   bool equalFills = (scope != "" && scope != "ALL" && hi - lo <= g_sym.Point() * 5);
+   bool wantWorst = GroupIsWorst(scope, direction);
+   if(equalFills)
+      Print("[TradinGo] CHECK_AND_BE scope=", scope,
+            " — all ", cnt, " fills equal (", DoubleToString(hi, (int)g_sym.Digits()),
+            "): BE on slots ", (wantWorst ? "T2,T4 (worst)" : "T1,T3 (best)"));
+   int done = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(!g_pos.SelectByIndex(i))
+         continue;
+      if(!IsOurPosition(g_pos.Ticket(), magicBase, 5))
+         continue;
+      if(equalFills)
+        {
+         int slot = SlotFromMagic((ulong)g_pos.Magic(), magicBase);
+         if(EqualFillIsWorstSlot(slot) != wantWorst)
+            continue;
+        }
+      else if(!BeScopeSelects(scope, direction, g_pos.PriceOpen(), hi, lo))
+         continue;
+      ApplyBreakEvenSLSignal(g_pos.Ticket(), signalEntry);
+      done++;
+     }
+   if(scope != "" && scope != "ALL")
+      Print("[TradinGo] CHECK_AND_BE scope=", scope, " (", direction, ") BE on ", done, "/", cnt);
    return true;
   }
 
@@ -1999,6 +2530,7 @@ bool ProcessSignalJson(const string channelFile, const string json)
    Print("[TradinGo] ", channelFile, " action=", action,
          " sym=", JsonGetString(json, "symbol"),
          " ts=", ts);
+   RangeRetryDrop(channelFile, "new_signal_" + action);
 
    bool handled = false;
    if(action == "OPEN" || action == "OPEN_NOW")
@@ -2098,6 +2630,12 @@ bool     g_bridgeStale = false;
 #define TG_DD_START_NAME "TG_TRADINGO_DD_START"
 #define TG_DD_PEAK_NAME  "TG_TRADINGO_DD_PEAK"
 #define TG_DD_HALT_NAME  "TG_TRADINGO_DD_HALT"
+#define TG_DDD_DAY_NAME  "TG_TRADINGO_DDD_DAY"
+#define TG_DDD_REF_NAME  "TG_TRADINGO_DDD_REF"
+#define TG_DDD_HIT_NAME  "TG_TRADINGO_DDD_HIT"
+datetime g_dddDay       = 0;    // UTC start of the current prop day
+double   g_dddRef       = 0.0;  // max(balance, equity) at that reset
+bool     g_dddBreached  = false;
 double   g_ddStart      = 0.0;  // static reference equity (never recomputed)
 double   g_ddPeakClosed = 0.0;  // peak of closed equity (balance), never decreases
 bool     g_ddHalted     = false;
@@ -2215,6 +2753,12 @@ bool IsTGPositionSelected()
    if(CommentStartsWithTag(c, InpTagOro))
       return true;
    if(CommentStartsWithTag(c, InpTagForex))
+      return true;
+   if(CommentStartsWithTag(c, InpTagHybridGold))
+      return true;
+   if(CommentStartsWithTag(c, InpTagHybridFx))
+      return true;
+   if(CommentStartsWithTag(c, InpTagSertorio))
       return true;
    return false;
   }
@@ -2444,7 +2988,11 @@ void DdInit()
       return;
      }
    if(InpDdStartEquity > 0.0)
+     {
       g_ddStart = InpDdStartEquity;
+      if(InpDdTrailEod && GlobalVariableCheck(TG_DD_START_NAME))
+         g_ddStart = MathMax(g_ddStart, GlobalVariableGet(TG_DD_START_NAME));
+     }
    else if(GlobalVariableCheck(TG_DD_START_NAME))
       g_ddStart = GlobalVariableGet(TG_DD_START_NAME);
    else
@@ -2515,6 +3063,122 @@ void CheckEquityFloorGuard()
          " -> closing ALL TG positions, halting new opens");
    CloseAllOurPositions("KILLSWITCH_EQUITY_FLOOR");
    DdSetHalted(true);
+  }
+
+//+==================================================================+
+//| v2.30 daily drawdown guard + trailing end-of-day max DD          |
+//+==================================================================+
+int NthSundayOfMonth(const int year, const int mon, const int n)
+  {
+   MqlDateTime t;
+   t.year = year; t.mon = mon; t.day = 1; t.hour = 0; t.min = 0; t.sec = 0;
+   MqlDateTime s;
+   TimeToStruct(StructToTime(t), s);
+   return 1 + ((7 - s.day_of_week) % 7) + 7 * (n - 1);
+  }
+
+//+------------------------------------------------------------------+
+//| US DST: 2nd Sunday of March 07:00 UTC -> 1st Sunday of Nov 06:00  |
+//+------------------------------------------------------------------+
+bool NewYorkDst(const datetime utc)
+  {
+   MqlDateTime u;
+   TimeToStruct(utc, u);
+   MqlDateTime a;
+   a.year = u.year; a.mon = 3; a.day = NthSundayOfMonth(u.year, 3, 2);
+   a.hour = 7; a.min = 0; a.sec = 0;
+   MqlDateTime b;
+   b.year = u.year; b.mon = 11; b.day = NthSundayOfMonth(u.year, 11, 1);
+   b.hour = 6; b.min = 0; b.sec = 0;
+   return (utc >= StructToTime(a) && utc < StructToTime(b));
+  }
+
+//+------------------------------------------------------------------+
+datetime DddDayStartUtc(const datetime utc)
+  {
+   int off = NewYorkDst(utc) ? 4 : 5;
+   datetime ny = utc - off * 3600;
+   MqlDateTime n;
+   TimeToStruct(ny, n);
+   n.hour = MathMax(0, MathMin(23, InpDdDailyResetHourNY)); n.min = 0; n.sec = 0;
+   datetime resetNy = StructToTime(n);
+   if(ny < resetNy)
+      resetNy -= 86400;
+   return resetNy + off * 3600;
+  }
+
+//+------------------------------------------------------------------+
+bool DddEnabled()
+  {
+   return (InpDdDailyPct > 0.0);
+  }
+
+//+------------------------------------------------------------------+
+double DddLevel(const double consumedPct)
+  {
+   double pct = MathMax(0.0, MathMin(100.0, consumedPct));
+   return g_dddRef * (1.0 - InpDdDailyPct * pct / 10000.0);
+  }
+
+//+------------------------------------------------------------------+
+//| New prop day: snapshot max(balance, equity), raise the trailing   |
+//| max-DD reference. On init the same-day snapshot is restored.      |
+//+------------------------------------------------------------------+
+void DddRollDay(const bool atInit)
+  {
+   if(!DddEnabled() && !InpDdTrailEod)
+      return;
+   datetime day = DddDayStartUtc(TimeGMT());
+   if(day == g_dddDay)
+      return;
+   double ref = MathMax(AccountInfoDouble(ACCOUNT_BALANCE), AccountInfoDouble(ACCOUNT_EQUITY));
+   bool restored = (atInit && GlobalVariableCheck(TG_DDD_DAY_NAME)
+                    && (datetime)GlobalVariableGet(TG_DDD_DAY_NAME) == day
+                    && GlobalVariableCheck(TG_DDD_REF_NAME));
+   if(restored)
+      ref = GlobalVariableGet(TG_DDD_REF_NAME);
+   else if(InpDdTrailEod && DdGuardEnabled() && ref > g_ddStart)
+     {
+      Print("[TradinGo] DD_TRAIL max-DD reference ", DoubleToString(g_ddStart, 2),
+            " -> ", DoubleToString(ref, 2), " (end-of-day high)");
+      g_ddStart = ref;
+      GlobalVariableSet(TG_DD_START_NAME, g_ddStart);
+     }
+   g_dddDay = day;
+   g_dddRef = ref;
+   g_dddBreached = (restored && GlobalVariableCheck(TG_DDD_HIT_NAME)
+                    && (datetime)GlobalVariableGet(TG_DDD_HIT_NAME) == day);
+   GlobalVariableSet(TG_DDD_DAY_NAME, (double)day);
+   GlobalVariableSet(TG_DDD_REF_NAME, ref);
+   if(DddEnabled())
+      Print("[TradinGo] DAILY_DD day_start_utc=", TimeToString(day, TIME_DATE | TIME_MINUTES),
+            " ref=", DoubleToString(ref, 2),
+            " limit_pct=", DoubleToString(InpDdDailyPct, 2),
+            " block_new_at_equity=", DoubleToString(DddLevel(InpDdDailyBlockNewAtPct), 2),
+            " close_all_at_equity=", DoubleToString(DddLevel(InpDdDailyCloseAtPct), 2),
+            " limit_equity=", DoubleToString(DddLevel(100.0), 2),
+            (restored ? " (restored)" : ""),
+            (g_dddBreached ? " BREACHED today: opens blocked until next reset" : ""));
+  }
+
+//+------------------------------------------------------------------+
+void CheckDailyDdGuard()
+  {
+   DddRollDay(false);
+   if(!DddEnabled() || g_dddBreached || g_dddRef <= 0.0)
+      return;
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double trip = DddLevel(InpDdDailyCloseAtPct);
+   if(equity > trip)
+      return;
+   Print("[TradinGo] CRITICAL DAILY_DD_BREACH equity=", DoubleToString(equity, 2),
+         " <= trip=", DoubleToString(trip, 2),
+         " ref=", DoubleToString(g_dddRef, 2),
+         " limit_equity=", DoubleToString(DddLevel(100.0), 2),
+         " -> closing ALL TG positions, opens blocked until next daily reset");
+   CloseAllOurPositions("KILLSWITCH_DAILY_DD");
+   g_dddBreached = true;
+   GlobalVariableSet(TG_DDD_HIT_NAME, (double)g_dddDay);
   }
 
 //+==================================================================+
@@ -2602,6 +3266,12 @@ double DdFloatPer001(const string channelKey)
       return InpDdFloatOro;
    if(channelKey == "forex")
       return InpDdFloatForex;
+   if(channelKey == "hybridgold")
+      return InpDdFloatHybridGold;
+   if(channelKey == "hybridfx")
+      return InpDdFloatHybridFx;
+   if(channelKey == "sertorio")
+      return InpDdFloatSertorio;
    return 0.0;
   }
 
@@ -2697,6 +3367,18 @@ bool IsOpenBlocked(const string symbol)
      {
       Print("[TradinGo] OPEN blocked — kill switch flag '", InpHaltFlagFile, "' present");
       return true;
+     }
+   if(DddEnabled() && g_dddRef > 0.0)
+     {
+      double eqDay = AccountInfoDouble(ACCOUNT_EQUITY);
+      if(g_dddBreached || eqDay <= DddLevel(InpDdDailyBlockNewAtPct))
+        {
+         Print("[TradinGo] OPEN blocked — daily DD: equity=", DoubleToString(eqDay, 2),
+               " ref=", DoubleToString(g_dddRef, 2),
+               " block_level=", DoubleToString(DddLevel(InpDdDailyBlockNewAtPct), 2),
+               (g_dddBreached ? " (breached today)" : ""));
+         return true;
+        }
      }
    if(DdGuardEnabled())
      {
@@ -3112,12 +3794,79 @@ void WriteJournalClose(const int i)
   }
 
 //+------------------------------------------------------------------+
+double ClosedPositionProfit(const ulong posId)
+  {
+   double realized = 0.0;
+   if(!HistorySelectByPosition(posId))
+      return 0.0;
+   for(int d = HistoryDealsTotal() - 1; d >= 0; d--)
+     {
+      ulong dl = HistoryDealGetTicket(d);
+      if(dl == 0)
+         continue;
+      long entry = HistoryDealGetInteger(dl, DEAL_ENTRY);
+      if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT)
+         realized += HistoryDealGetDouble(dl, DEAL_PROFIT);
+     }
+   return realized;
+  }
+
+bool AutoBeTagEnabled(const string tag)
+  {
+   if(tag == "")
+      return false;
+   string parts[];
+   int n = StringSplit(InpAutoBeTp1Tags, ',', parts);
+   for(int k = 0; k < n; k++)
+     {
+      string p = Trim(parts[k]);
+      StringToUpper(p);
+      string t = tag;
+      StringToUpper(t);
+      if(p != "" && p == t)
+         return true;
+     }
+   return false;
+  }
+
+// T1 of a tracked signal closed in profit: move the remaining legs (same
+// symbol, same magic base) to break-even.
+void AutoBreakEvenAfterTp1(const int i)
+  {
+   if(!InpAutoBreakEvenOnTp1 || g_trkTpIndex[i] != 1 || !AutoBeTagEnabled(g_trkChannel[i]))
+      return;
+   double profit = ClosedPositionProfit(g_trkTicket[i]);
+   if(profit <= 0.0)
+      return;
+   long magicBase = (long)g_trkMagic[i] - 1 - (long)InpMagicOffset;
+   string symbol = g_trkSymbol[i];
+   int done = 0;
+   for(int k = ArraySize(g_trkTicket) - 1; k >= 0; k--)
+     {
+      if(k == i || g_trkSymbol[k] != symbol || g_trkTpIndex[k] <= 1)
+         continue;
+      if((long)g_trkMagic[k] != (long)TradeMagic((int)magicBase, g_trkTpIndex[k]))
+         continue;
+      if(g_trkSignalId[i] != "" && g_trkSignalId[k] != "" && g_trkSignalId[k] != g_trkSignalId[i])
+         continue;
+      if(!PositionSelectByTicket(g_trkTicket[k]))
+         continue;
+      double entry = (g_trkReqEntry[k] > 0.0) ? g_trkReqEntry[k] : g_trkReqEntry[i];
+      ApplyBreakEvenSLSignal(g_trkTicket[k], entry);
+      done++;
+     }
+   Print("[TradinGo] AUTO_BE_TP1 ", g_trkChannel[i], " ", symbol, " sid=", g_trkSignalId[i],
+         " T1 ticket=", g_trkTicket[i], " profit=", DoubleToString(profit, 2),
+         " -> BE on ", done, " leg(s)");
+  }
+
 void DetectClosedPositions()
   {
    for(int i = ArraySize(g_trkTicket) - 1; i >= 0; i--)
      {
       if(PositionSelectByTicket(g_trkTicket[i]))
          continue; // still open
+      AutoBreakEvenAfterTp1(i);
       WriteJournalClose(i);
       TrackRemoveAt(i);
      }
@@ -3475,6 +4224,7 @@ int OnInit()
 
    ParseChannels();
    DdInit();
+   DddRollDay(true);
    CheckHaltFlag();
    g_trade.SetDeviationInPoints(InpMaxSlippagePoints);
    EventSetMillisecondTimer(InpPollMs);
@@ -3497,6 +4247,7 @@ int OnInit()
          " update_open_max_drift_pct_of_sl=", DoubleToString(InpUpdateOpenMaxDriftPctOfSl, 1),
          " be_use_signal_entry=", InpBeUseSignalEntry,
          " be_signal_entry_max_gap_pts=", InpBeSignalEntryMaxGapPoints,
+         " range_retry_sec=", InpRangeRetrySec,
          " protect_existing_levels=", InpProtectExistingLevels,
          " naked_fallback_sl_pts=", InpNakedFallbackSlPoints,
          " be_never_worse_than_entry=", InpBeNeverWorseThanEntry,
@@ -3505,6 +4256,11 @@ int OnInit()
    Print("[TradinGo] v", EA_VERSION, " lots/tags | ivan=", DoubleToString(InpLotIvan, 2),
          "/", InpTagIvan,
          " stark=", DoubleToString(InpLotStark, 2), "/", InpTagStark,
+         " hybridgold=", DoubleToString(InpLotHybridGold, 2),
+         " hybridfx=", DoubleToString(InpLotHybridFx, 2),
+         " ivanbtc=", DoubleToString(InpLotIvanBtc, 2),
+         " sertorio=", DoubleToString(InpLotSertorio, 2), "/", InpTagSertorio,
+         " lot_per_signal=", InpLotPerSignal, " ivan_max_legs=", InpMaxLegsIvan,
          " comment_tg_prefix=", InpCommentUseTgPrefix);
    Print("[TradinGo] v", EA_VERSION, " hardening | killswitch currency=ACCOUNT_CURRENCY (",
          AccountInfoString(ACCOUNT_CURRENCY), ")",
@@ -3560,7 +4316,9 @@ void OnTimer()
 void OnTick()
   {
    ProcessBePending();
+   ProcessRangeRetry();
    CheckEquityFloorGuard();
+   CheckDailyDdGuard();
    CheckFloatingKillSwitch();
    CheckMaxHolding();
    UpdateExcursions();

@@ -35,6 +35,7 @@ L'EA non richiede Telegram né Python: legge solo i JSON.
 | `signal_ch_stark.json` | Sala Stark | 14000 |
 | `signal_ch_ivan.json` | IvanTrades VIP | 17000 |
 | `signal_ch_ivanbtc.json` | IvanTrades - BTC (BTCUSD/XAGUSD) | 18000 |
+| `signal_ch_sertorio.json` | Matteo Sertorio (zone, tag `SZ`) | 19000 |
 
 Stato iniziale / idle: `{"action": "NONE"}`.
 
@@ -52,7 +53,7 @@ Il bridge sovrascrive l'intero file ad ogni evento (scrittura atomica tmp + repl
 | `direction` | `"BUY"` \| `"SELL"` | Obbligatorio per OPEN* |
 | `symbol` | string | Es. `XAUUSD`, `EURUSD` |
 | `entry` | number \| null | Prezzo singolo; **null** se c'è `entry_range` |
-| `entry_range` | `[lo, hi]` \| null | EA valuta prezzo nel range (non usa media) |
+| `entry_range` | `[lo, hi]` \| null | EA valuta prezzo nel range (non usa media); se oltre range+tolleranza l'OPEN resta pendente per `InpRangeRetrySec` (300 s) e si apre al rientro del prezzo (`RANGE_RETRY_*`), scartato se tocca SL o TP1 o arriva un nuovo segnale |
 | `sl` | number \| null | Stop loss |
 | `tp_levels` | number[] | Un TP per trade split |
 | `trades` | int | Numero posizioni da aprire |
@@ -99,7 +100,7 @@ Il bridge sovrascrive l'intero file ad ogni evento (scrittura atomica tmp + repl
 | `CLOSE_SELECTIVE` | Chiusura **parziale selettiva**: campo `keep` = `BEST` / `HIGHEST` / `LOWEST` / `ALL_BUT_NEWEST`. Restano aperte solo le posizioni con quel prezzo di apertura (per direzione, tolleranza 10 punti), le altre si chiudono. `BEST` = migliori per la direzione (SELL: prezzo più alto, BUY: più basso). `ALL_BUT_NEWEST` ("chiudo la rientry") = chiude solo l'ultimo blocco aperto — le posizioni aperte entro `InpBatchWindowSec` dalla più recente — e lascia il setup principale; se tutte le posizioni sono nello stesso blocco non fa nulla |
 | `BREAK_EVEN_PRICE` | Sposta SL a `be_price` |
 | `CLOSE_HALF_BE` | Chiudi metà volume + BE sul resto (ORO: `60 PIPS CLOSE OR BREKIVEN`) |
-| `CHECK_AND_BE` | Se TP1 non chiuso, sposta SL a entry. Opzionale `be_price` (IVAN: entry pubblicato dal setup): l'EA lo usa se legale ed entro `InpBeSignalEntryMaxGapPoints` dal fill, altrimenti SL al fill |
+| `CHECK_AND_BE` | Se TP1 non chiuso, sposta SL a entry. Opzionale `be_price` (IVAN: entry pubblicato dal setup): con `InpBeMode=BE_SIGNAL_ENTRY` (default) lo SL va al più largo tra fill e `be_price` (BUY: il più basso, SELL: il più alto), mai più stretto del fill; se `be_price` è oltre `InpBeSignalEntryMaxGapPoints` (200) dal fill lo SL si ferma a fill ∓ 200 pts. `BE_FILL_IF_BETTER`: legacy, il più stretto dei due. Opzionale `scope` = `ALL`/`BEST`/`WORST`/`HIGHEST`/`LOWEST`: BE solo sulle gambe di quel gruppo ("mettiamo a BE le entrate più brutte"), le altre non si toccano |
 | `CHECK_AND_CLOSE_TP` | Chiudi trade con `tp_index` se ancora aperto |
 
 ### Entry range

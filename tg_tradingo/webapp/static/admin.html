@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — TG TradinGo</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f1115; color: #e6e6e6; font-family: system-ui, sans-serif; font-size: 14px; padding: 1.5rem; }
+  a { color: #7eb8f7; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1 { font-size: 1.4rem; margin-bottom: 1.5rem; color: #fff; }
+  h2 { font-size: 1.1rem; margin: 2rem 0 0.75rem; color: #c8d4e8; border-bottom: 1px solid #2a2e38; padding-bottom: 0.4rem; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #1e2230; }
+  th { color: #8899aa; font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  tr:hover td { background: #151820; }
+  input, select, textarea { background: #1a1e28; border: 1px solid #2d3347; color: #e6e6e6; border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 13px; font-family: inherit; }
+  input:focus, select:focus { outline: none; border-color: #4a7fd4; }
+  button { border: none; border-radius: 4px; padding: 0.35rem 0.8rem; cursor: pointer; font-size: 13px; font-family: inherit; }
+  .btn-primary { background: #2b5fad; color: #fff; }
+  .btn-primary:hover { background: #3570c8; }
+  .btn-danger { background: #7a2020; color: #fcc; }
+  .btn-danger:hover { background: #9b2828; }
+  .btn-sm { padding: 0.2rem 0.5rem; font-size: 12px; }
+  .form-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 0.75rem; }
+  .form-group { display: flex; flex-direction: column; gap: 0.2rem; }
+  .form-group label { font-size: 11px; color: #8899aa; text-transform: uppercase; letter-spacing: 0.03em; }
+  .alert-list { list-style: none; }
+  .alert-list li { background: #3a1010; color: #f88; border: 1px solid #7a2020; border-radius: 4px; padding: 0.4rem 0.75rem; margin-bottom: 0.4rem; font-size: 13px; }
+  .no-alerts { color: #4a7; font-size: 13px; }
+  .totals-row { font-weight: 600; color: #c8d4e8; }
+  .tag { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 11px; }
+  .tag-vetrina { background: #1a3a5c; color: #7eb8f7; }
+  .tag-personale { background: #1a3a1a; color: #7ec87e; }
+  .tag-prop { background: #3a2a10; color: #f0b860; }
+  .tag-demo { background: #2a2a2a; color: #999; }
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-top: 0.75rem; }
+  .summary-card { background: #141720; border: 1px solid #2a2e38; border-radius: 6px; padding: 1rem; }
+  .summary-card .label { font-size: 11px; color: #8899aa; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.4rem; }
+  .summary-card .value { font-size: 1.4rem; font-weight: 700; }
+  .value-red { color: #f87; }
+  .value-green { color: #7ec87e; }
+  .value-neutral { color: #e6e6e6; }
+  #loading { color: #8899aa; font-size: 13px; margin-top: 2rem; }
+</style>
+</head>
+<body>
+
+<div style="margin-bottom:1.5rem;">
+  <a href="/">&larr; Dashboard</a>
+</div>
+
+<h1>Pannello Admin</h1>
+
+<div id="loading">Caricamento dati…</div>
+<div id="content" style="display:none;">
+
+  <!-- ── Sezione 1: Terminali MT5 ── -->
+  <h2>Terminali MT5 scoperti</h2>
+  <table id="tbl-terminals">
+    <thead>
+      <tr>
+        <th>Terminal ID</th>
+        <th>Broker</th>
+        <th>Running</th>
+        <th>Dati</th>
+        <th>Label</th>
+        <th>Tipo</th>
+        <th>Pubblico</th>
+        <th>Mostra equity totale</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="body-terminals"></tbody>
+  </table>
+
+  <!-- ── Sezione 2: Alert ── -->
+  <h2>Alert</h2>
+  <ul class="alert-list" id="alert-list"></ul>
+
+  <!-- ── Sezione 3: Costi ── -->
+  <h2>Costi</h2>
+  <form id="form-cost" class="form-row" onsubmit="addCost(event)">
+    <div class="form-group">
+      <label>Data</label>
+      <input type="month" id="cost-date" required>
+    </div>
+    <div class="form-group">
+      <label>Categoria</label>
+      <select id="cost-cat">
+        <option value="vps">VPS</option>
+        <option value="bruciato">Bruciato</option>
+        <option value="prop">Prop</option>
+        <option value="altro" selected>Altro</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Importo (€)</label>
+      <input type="number" id="cost-amount" step="0.01" min="0" required style="width:100px;">
+    </div>
+    <div class="form-group">
+      <label>Nota</label>
+      <input type="text" id="cost-note" style="width:180px;">
+    </div>
+    <button type="submit" class="btn-primary">Aggiungi</button>
+  </form>
+  <table id="tbl-costs">
+    <thead>
+      <tr><th>Data</th><th>Categoria</th><th>Importo</th><th>Nota</th><th></th></tr>
+    </thead>
+    <tbody id="body-costs"></tbody>
+    <tfoot>
+      <tr class="totals-row">
+        <td colspan="2">Totale per categoria</td>
+        <td id="costs-total" colspan="2">—</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <!-- ── Sezione 4: Prelievi ── -->
+  <h2>Prelievi</h2>
+  <form id="form-withdrawal" class="form-row" onsubmit="addWithdrawal(event)">
+    <div class="form-group">
+      <label>Data</label>
+      <input type="date" id="w-date" required>
+    </div>
+    <div class="form-group">
+      <label>Conto</label>
+      <input type="text" id="w-account" style="width:130px;">
+    </div>
+    <div class="form-group">
+      <label>Importo (€)</label>
+      <input type="number" id="w-amount" step="0.01" min="0" required style="width:100px;">
+    </div>
+    <div class="form-group">
+      <label>Nota</label>
+      <input type="text" id="w-note" style="width:180px;">
+    </div>
+    <button type="submit" class="btn-primary">Aggiungi</button>
+  </form>
+  <table id="tbl-withdrawals">
+    <thead>
+      <tr><th>Data</th><th>Conto</th><th>Importo</th><th>Nota</th><th></th></tr>
+    </thead>
+    <tbody id="body-withdrawals"></tbody>
+    <tfoot>
+      <tr class="totals-row">
+        <td colspan="2">Totale prelievi</td>
+        <td id="w-total" colspan="2">—</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <!-- ── Sezione 5: Riepilogo economico ── -->
+  <h2>Riepilogo economico</h2>
+  <p style="color:#8899aa;font-size:12px;margin-bottom:.75rem;">
+    I guadagni sono calcolati come proxy dai PnL ultimi 30gg di tutti i conti (dati parziali).
+  </p>
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">Totale costi</div>
+      <div class="value value-red" id="sum-costs">—</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Totale prelievi</div>
+      <div class="value value-neutral" id="sum-withdrawals">—</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Guadagni stimati (30gg, proxy)</div>
+      <div class="value value-green" id="sum-gains">—</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Saldo stimato (guadagni - costi - prelievi)</div>
+      <div class="value" id="sum-balance">—</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+let _state = { mt5_terminals: [], alerts: [], accounts_cfg: {}, costs: [], withdrawals: [] };
+let _statusSnap = null;
+
+async function loadAll() {
+  try {
+    const [adminRes, statusRes] = await Promise.all([
+      fetch('/api/admin/status'),
+      fetch('/api/status'),
+    ]);
+    if (adminRes.ok) _state = await adminRes.json();
+    if (statusRes.ok) _statusSnap = await statusRes.json();
+  } catch (e) {
+    console.error(e);
+  }
+  renderAll();
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('content').style.display = '';
+}
+
+function renderAll() {
+  renderTerminals();
+  renderAlerts();
+  renderCosts();
+  renderWithdrawals();
+  renderSummary();
+}
+
+function renderTerminals() {
+  const tbody = document.getElementById('body-terminals');
+  tbody.innerHTML = '';
+  if (!_state.mt5_terminals || !_state.mt5_terminals.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="color:#666;">Nessun terminale trovato</td></tr>';
+    return;
+  }
+  for (const t of _state.mt5_terminals) {
+    const cfg = (_state.accounts_cfg || {})[t.terminal_id] || {};
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td title="${esc(t.terminal_id)}">${esc(t.terminal_id.substring(0,10))}…</td>
+      <td>${esc(t.broker_name)}</td>
+      <td>${t.running ? '🟢' : '🔴'}</td>
+      <td>${t.has_data ? '✓' : '—'}</td>
+      <td><input type="text" value="${esc(cfg.label||'')}" data-tid="${esc(t.terminal_id)}" class="inp-label" style="width:110px;"></td>
+      <td>
+        <select data-tid="${esc(t.terminal_id)}" class="sel-type">
+          ${['vetrina','personale','prop','demo'].map(v=>`<option value="${v}"${cfg.type===v?' selected':''}>${v}</option>`).join('')}
+        </select>
+      </td>
+      <td><input type="checkbox" data-tid="${esc(t.terminal_id)}" class="chk-public"${cfg.public?' checked':''}></td>
+      <td><input type="checkbox" data-tid="${esc(t.terminal_id)}" class="chk-equity"${cfg.show_equity_total?' checked':''}></td>
+      <td><button class="btn-primary btn-sm" onclick="saveAccount('${esc(t.terminal_id)}')">Salva</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+async function saveAccount(tid) {
+  const row = [...document.querySelectorAll(`[data-tid="${tid}"]`)];
+  const label = row.find(el=>el.classList.contains('inp-label'))?.value || '';
+  const type = row.find(el=>el.classList.contains('sel-type'))?.value || 'demo';
+  const pub = row.find(el=>el.classList.contains('chk-public'))?.checked || false;
+  const eq = row.find(el=>el.classList.contains('chk-equity'))?.checked || false;
+  await fetch('/api/admin/account', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({terminal_id: tid, label, type, public: pub, show_equity_total: eq}),
+  });
+  await loadAll();
+}
+
+function renderAlerts() {
+  const ul = document.getElementById('alert-list');
+  ul.innerHTML = '';
+  const alerts = _state.alerts || [];
+  if (!alerts.length) {
+    ul.innerHTML = '<li style="color:#4a7;background:transparent;border:none;">Nessun alert</li>';
+    return;
+  }
+  for (const a of alerts) {
+    const li = document.createElement('li');
+    li.textContent = a;
+    ul.appendChild(li);
+  }
+}
+
+function renderCosts() {
+  const tbody = document.getElementById('body-costs');
+  tbody.innerHTML = '';
+  const costs = _state.costs || [];
+  const bycat = {};
+  for (const c of costs) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(c.date)}</td>
+      <td>${esc(c.category)}</td>
+      <td>€ ${Number(c.amount).toFixed(2)}</td>
+      <td>${esc(c.note)}</td>
+      <td><button class="btn-danger btn-sm" onclick="deleteCost('${esc(c.id)}')">Elimina</button></td>
+    `;
+    tbody.appendChild(tr);
+    bycat[c.category] = (bycat[c.category]||0) + Number(c.amount);
+  }
+  const totalEl = document.getElementById('costs-total');
+  if (!costs.length) { totalEl.textContent = '—'; return; }
+  totalEl.textContent = Object.entries(bycat).map(([k,v])=>`${k}: €${v.toFixed(2)}`).join(' | ');
+}
+
+function renderWithdrawals() {
+  const tbody = document.getElementById('body-withdrawals');
+  tbody.innerHTML = '';
+  const ws = _state.withdrawals || [];
+  let tot = 0;
+  for (const w of ws) {
+    tot += Number(w.amount);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(w.date)}</td>
+      <td>${esc(w.account)}</td>
+      <td>€ ${Number(w.amount).toFixed(2)}</td>
+      <td>${esc(w.note)}</td>
+      <td><button class="btn-danger btn-sm" onclick="deleteWithdrawal('${esc(w.id)}')">Elimina</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+  document.getElementById('w-total').textContent = ws.length ? `€ ${tot.toFixed(2)}` : '—';
+}
+
+function renderSummary() {
+  const costs = (_state.costs||[]).reduce((s,c)=>s+Number(c.amount),0);
+  const withdrawals = (_state.withdrawals||[]).reduce((s,w)=>s+Number(w.amount),0);
+  // proxy: somma d30 pnl di tutti gli accounts
+  let gains = 0;
+  const accounts = (_statusSnap||{}).accounts || [];
+  for (const acc of accounts) {
+    gains += Number(((acc.pnl||{}).totals||{}).d30?.pnl||0);
+  }
+  const balance = gains - costs - withdrawals;
+  document.getElementById('sum-costs').textContent = `€ ${costs.toFixed(2)}`;
+  document.getElementById('sum-withdrawals').textContent = `€ ${withdrawals.toFixed(2)}`;
+  document.getElementById('sum-gains').textContent = `€ ${gains.toFixed(2)}`;
+  const balEl = document.getElementById('sum-balance');
+  balEl.textContent = `€ ${balance.toFixed(2)}`;
+  balEl.className = 'value ' + (balance >= 0 ? 'value-green' : 'value-red');
+}
+
+async function addCost(e) {
+  e.preventDefault();
+  const body = {
+    date: document.getElementById('cost-date').value,
+    category: document.getElementById('cost-cat').value,
+    amount: parseFloat(document.getElementById('cost-amount').value),
+    note: document.getElementById('cost-note').value,
+  };
+  await fetch('/api/admin/cost', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  document.getElementById('form-cost').reset();
+  await loadAll();
+}
+
+async function deleteCost(id) {
+  if (!confirm('Eliminare questo costo?')) return;
+  await fetch(`/api/admin/cost/${encodeURIComponent(id)}`, {method:'DELETE'});
+  await loadAll();
+}
+
+async function addWithdrawal(e) {
+  e.preventDefault();
+  const body = {
+    date: document.getElementById('w-date').value,
+    account: document.getElementById('w-account').value,
+    amount: parseFloat(document.getElementById('w-amount').value),
+    note: document.getElementById('w-note').value,
+  };
+  await fetch('/api/admin/withdrawal', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  document.getElementById('form-withdrawal').reset();
+  await loadAll();
+}
+
+async function deleteWithdrawal(id) {
+  if (!confirm('Eliminare questo prelievo?')) return;
+  await fetch(`/api/admin/withdrawal/${encodeURIComponent(id)}`, {method:'DELETE'});
+  await loadAll();
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// init
+const today = new Date().toISOString().slice(0,10);
+document.getElementById('w-date').value = today;
+document.getElementById('cost-date').value = today.slice(0,7);
+
+loadAll();
+</script>
+</body>
+</html>
