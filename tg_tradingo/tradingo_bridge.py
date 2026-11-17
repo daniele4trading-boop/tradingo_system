@@ -22,6 +22,8 @@ import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 
+from telethon import TelegramClient, events
+
 import sertorio_zones
 from bridge_core import (
     BridgeState,
@@ -54,7 +56,6 @@ from ivan_interpreter import (
     interpretation_to_signal,
     is_urgent,
 )
-from telethon import TelegramClient, events
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -1683,7 +1684,7 @@ IVAN_REENTRY_DEDUP_MAX_GAP = 3.0
 # Apertura del canale: "XAUUSD SELL 4011", "XAUUSD BUY: 4591-4587" (dal 26/08 il
 # canale scrive i due punti dopo la direzione e talvolta una zona d'ingresso).
 _IVAN_OPEN_RE = (
-    r"(XAUUSD|GOLD)\s+(BUY|SELL)\s*[:@]?\s*(\d+(?:[.,]\d+)?)"
+    r"(XAUUSD|GOLD)\s+(BUY|BUU|BIU|SELL)\s*[:@]?\s*(\d+(?:[.,]\d+)?)"
     r"(?:\s*-\s*(\d+(?:[.,]\d+)?))?"
 )
 # "Spostiamo SL a BE", "Mettiamo BE x free risk", "SL a BE", "free risk":
@@ -2442,6 +2443,10 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         entry = raw_px or last_ref
         tps = list(last.get("tp_levels") or [])
         sl = last.get("sl")
+        # 17/11: rientro ereditato da un setup senza SL → gamba nuda sui conti.
+        if sl is None:
+            log.warning(f"[IVAN] Rientro senza SL nel setup di riferimento, ignorato (REENTRY_NO_SL): {raw[:60]}")
+            return None
         if entry is not None:
             # I livelli già superati dal nuovo entry non sono più coerenti.
             tps = [
@@ -2556,7 +2561,8 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         return None
 
     symbol = normalize_symbol(m_open.group(1))
-    direction = m_open.group(2)
+    # "XAUUSD BUU 3848-3845" (17/11): refuso di BUY, due volte nello stesso giorno.
+    direction = "BUY" if m_open.group(2) in ("BUU", "BIU") else m_open.group(2)
     entry = pf(m_open.group(3))
     if entry is None:
         return None
@@ -2667,7 +2673,13 @@ def parser_ivan_vip(text: str, ch: dict, state: BridgeState | None = None) -> di
         signal["allow_stack"] = True
     if lot_factor != 1.0:
         signal["lot_factor"] = lot_factor
-    state.set_ivan_last_trade({**signal, "setup_entry": _ivan_entry_ref(signal)})
+    # 17/11: "SELL 3858 … SL 3845" scartato dalla validazione era diventato il
+    # setup di riferimento del rientro successivo. Si memorizza solo se valido.
+    ok, reason = validate_signal(signal)
+    if ok:
+        state.set_ivan_last_trade({**signal, "setup_entry": _ivan_entry_ref(signal)})
+    else:
+        log.warning(f"[IVAN] Setup non valido ({reason}): non memorizzato come ultimo trade")
     return signal
 
 

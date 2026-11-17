@@ -15,25 +15,24 @@ if str(TG_ROOT) not in sys.path:
 # Import parsers without Telethon client startup side effects
 from bridge_core import (
     BridgeState,
-    validate_signal,
     apply_lot_rules,
-    match_close_all_intent,
-    salvage_incoherent_entry_range,
-    payload_for_ea,
     make_signal_id,
+    match_close_all_intent,
+    payload_for_ea,
+    salvage_incoherent_entry_range,
+    validate_signal,
 )
 from tradingo_bridge import (
     GOLD_CMD_DEDUP_TTL_SEC,
+    coerce_edit_open_to_update,
+    parser_ivan_vip,
     parser_sala_gold,
     parser_sala_oro,
     parser_sala_stark,
     parser_sala_vip,
-    parser_ivan_vip,
     parser_zanni_vip,
-    coerce_edit_open_to_update,
     pf,
 )
-
 
 CH1 = {
     "id": "CH1",
@@ -2776,3 +2775,33 @@ class TestIvanTpNonNumerico:
         assert parser_ivan_vip(
             "Aspettiamo ora prima di rientrare", CH_IVAN, bridge_state
         ) is None
+
+
+class TestIvanReentryAfterInvalidSetup:
+    """17/11: SELL con SL incoerente scartato, poi 'BUU' non letto, poi
+    'Proviamo a rientrare' → 1 gamba SELL senza SL/TP su tre conti."""
+
+    BAD_SELL = "XAUUSD SELL 3858\nTP1: 3865\nTP2: 3868\nTP3: 3870\nTP4: 3880\nSL: 3845"
+    BUU = "XAUUSD BUU 3848-3845\nTP1: 3856\nTP2: 3858\nTP3: 3860\nTP4: 3870\nSL: 3835"
+
+    def test_invalid_setup_not_stored_as_last_trade(self, bridge_state):
+        sig = parser_ivan_vip(self.BAD_SELL, CH_IVAN, bridge_state)
+        assert sig is not None and not validate_signal(sig)[0]
+        assert bridge_state.ivan_last_trade is None
+        assert parser_ivan_vip("Proviamo a rientrare d qui", CH_IVAN, bridge_state) is None
+
+    def test_buu_typo_is_buy(self, bridge_state):
+        sig = parser_ivan_vip(self.BUU, CH_IVAN, bridge_state)
+        assert sig["action"] == "OPEN"
+        assert sig["direction"] == "BUY"
+        assert sig["sl"] == 3835.0
+        assert sig["tp_levels"] == [3856.0, 3858.0, 3860.0, 3870.0]
+        assert validate_signal(sig)[0]
+        re_sig = parser_ivan_vip("Proviamo a rientrare d qui", CH_IVAN, bridge_state)
+        assert re_sig["direction"] == "BUY" and re_sig["sl"] == 3835.0
+
+    def test_reentry_without_sl_does_not_open(self, bridge_state):
+        bridge_state.set_ivan_last_trade(
+            {"direction": "SELL", "symbol": "XAUUSD", "entry": 3858.0, "tp_levels": [], "sl": None}
+        )
+        assert parser_ivan_vip("Rientriamo da qui", CH_IVAN, bridge_state) is None
