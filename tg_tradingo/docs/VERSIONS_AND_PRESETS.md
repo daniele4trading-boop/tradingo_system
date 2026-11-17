@@ -279,7 +279,8 @@ Dettaglio delle regole iFunds e procedure di test dei guard: [`IFUNDS_SETUP.md`]
 | Macchina | Componente | Preset |
 |---|---|---|
 | Gamehosting `100.74.9.8` | bridge Python + terminale Vantage demo | `TG_TradinGo_Vantage_Demo.set` |
-| Gamehosting `100.74.9.8` | terminale Xlence reale (solo IVAN) | `TG_TradinGo_Xlence_Reale_IVAN.set` |
+| Gamehosting `100.74.9.8` | terminale Xlence reale: **dismesso dal 16/11/2026** (conto azzerato, `Contabo_Xlence_MT5` `enabled=false` nel bridge) | `TG_TradinGo_Xlence_Reale_IVAN.set` (storico) |
+| Gamehosting `100.74.9.8` | terminale Ultima Markets / Agorà demo (IVAN + Hybrid) | preset del terminale (Hybrid 0.02/gamba, vedi 2.34) |
 | Gamehosting `100.74.9.8` | terminale Axi reale (solo IVAN) | `TG_TradinGo_Axi_Reale_IVAN.set` |
 | Contabo `144.91.76.28` | offline da 10/2026: bridge e task MT5 devono restare disabilitati | — |
 
