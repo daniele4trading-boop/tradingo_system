@@ -232,8 +232,8 @@ def is_stale_edit(
     if not is_edit or msg_date is None:
         return False
     if msg_date.tzinfo is None:
-        msg_date = msg_date.replace(tzinfo=timezone.utc)
-    now = now or datetime.now(timezone.utc)
+        msg_date = msg_date.replace(tzinfo=UTC)
+    now = now or datetime.now(UTC)
     return (now - msg_date).total_seconds() > max_age_sec
 
 
