@@ -53,6 +53,7 @@ COMMENT_RE = re.compile(r"(?:TG-)?I[TV](?:AN)?-T(\d)-([0-9a-f]{6,12})")
 TP_HIT_RE = re.compile(r"TP\s*(\d)\s*HIT", re.IGNORECASE)
 OUT_PRICE_RE = re.compile(r"\[(tp|sl)\s+([\d.]+)\]", re.IGNORECASE)
 BE_TOL = 0.30  # $/oz: chiusura SL entro questa distanza dal fill = break-even
+STALE_EDIT_AGE = dt.timedelta(hours=6)  # EDIT di un messaggio più vecchio: non è il setup corrente
 
 try:  # su Windows senza tzdata la zona può mancare: fallback a UTC+2
     from zoneinfo import ZoneInfo
@@ -80,6 +81,17 @@ class Event:
     @property
     def emitted(self) -> bool:
         return self.outcome == "EMITTED" and bool(self.action)
+
+
+def telegram_age(e: Event) -> dt.timedelta | None:
+    """Età del messaggio Telegram (payload.telegram_date) al momento dell'evento bridge."""
+    td = e.payload.get("telegram_date") if e.payload else None
+    if not td:
+        return None
+    try:
+        return e.ts - parse_iso(str(td))
+    except ValueError:
+        return None
 
 
 def parse_iso(s: str) -> dt.datetime:
@@ -235,7 +247,8 @@ class Setup:
     trades: int = 0
     message_id: int | None = None
     payload_ts: str = ""
-    from_edit: bool = False   # aperto da UPDATE_OPEN su EDIT di un messaggio precedente
+    from_edit: bool = False   # aperto da UPDATE_OPEN su EDIT (messaggio completato dopo la pubblicazione)
+    edit_age: dt.timedelta | None = None   # età del messaggio Telegram al momento dell'EDIT
     followups: list[Event] = field(default_factory=list)
     sids: set[str] = field(default_factory=set)
     claims: list[str] = field(default_factory=list)
@@ -245,6 +258,10 @@ class Setup:
     n_be: int = 0
     n_close: int = 0
     tp_update_ts: dt.datetime | None = None
+
+    @property
+    def stale_edit(self) -> bool:
+        return self.from_edit and self.edit_age is not None and self.edit_age > STALE_EDIT_AGE
 
     @property
     def entry_ref(self) -> float | None:
@@ -272,7 +289,8 @@ class Setup:
     def label(self) -> str:
         where = (f"{self.entry:g}" if self.entry is not None
                  else (f"{self.entry_range[0]:g}-{self.entry_range[1]:g}" if self.entry_range else "mkt"))
-        tag = " (EDIT)" if self.from_edit else (" (rientro)" if self.is_reentry else "")
+        tag = (" (EDIT stantio)" if self.stale_edit else
+               (" (EDIT)" if self.from_edit else (" (rientro)" if self.is_reentry else "")))
         return f"{fmt_local(self.ts)} {self.direction} @{where}{tag}"
 
 
@@ -280,6 +298,15 @@ def build_setups(events: list[Event]) -> list[Setup]:
     setups: list[Setup] = []
     cur: Setup | None = None
     for e in events:
+        if e.emitted and e.payload.get("levels_only"):
+            # zona scartata dal bridge (es. refuso "4401-3399"): solo SL/TP sulle posizioni aperte
+            if cur is not None:
+                cur.followups.append(e)
+                cur.final_sl = float(e.payload.get("sl") or cur.final_sl or 0) or cur.final_sl
+                if e.payload.get("tp_levels"):
+                    cur.final_tps = [float(x) for x in e.payload["tp_levels"]]
+                    cur.tp_update_ts = e.ts
+            continue
         late_edit = (e.emitted and e.action == "UPDATE_OPEN" and e.payload.get("tp_levels") and
                      (cur is None or (e.message_id is not None and e.message_id != cur.message_id and
                                       e.ts - cur.ts > dt.timedelta(minutes=10))))
@@ -291,7 +318,7 @@ def build_setups(events: list[Event]) -> list[Setup]:
                         text=e.text, is_reentry=bool(p.get("allow_stack")),
                         lot_factor=p.get("lot_factor"), trades=int(p.get("trades") or 0),
                         message_id=e.message_id, payload_ts=str(p.get("timestamp") or ""),
-                        from_edit=bool(late_edit))
+                        from_edit=bool(late_edit), edit_age=telegram_age(e))
             cur.sids.add(e.sid)
             cur.final_sl = cur.sl
             cur.final_tps = list(cur.tps)
@@ -997,9 +1024,18 @@ def find_issues(setups: list[Setup], legs: list[Leg], brokers: list[Broker],
     for s in setups:
         if s.from_edit:
             opened = [b.name for b in brokers if by_setup_broker.get((s.sid, b.name))]
-            issues.append(Issue(s, "apertura da EDIT di vecchio messaggio", 3,
-                                f"UPDATE_OPEN generato dall'EDIT di un messaggio precedente ha aperto nuove posizioni "
-                                f"su {', '.join(opened) or 'nessun broker'} (entry {s.entry_ref if s.entry_ref is not None else 'mkt'} vs prezzo di fill: vedi tabella)"))
+            entry_txt = s.entry_ref if s.entry_ref is not None else 'mkt'
+            if s.stale_edit:
+                issues.append(Issue(s, "EDIT di messaggio stantio riemesso come OPEN", 3,
+                                    f"il bridge ha riemesso come nuovo setup l'EDIT di un messaggio Telegram di "
+                                    f"{s.edit_age.days} giorni prima (entry {entry_txt}); "
+                                    f"eseguito su {', '.join(opened) or 'nessun broker'}"))
+            else:
+                age = f"{int(s.edit_age.total_seconds())} s" if s.edit_age is not None else "n/d"
+                issues.append(Issue(s, "apertura via EDIT (messaggio completato dopo la pubblicazione)", 1,
+                                    f"il segnale è stato pubblicato incompleto e completato con un EDIT dopo {age}: "
+                                    f"aperto su {', '.join(opened) or 'nessun broker'} "
+                                    f"(entry {entry_txt} vs prezzo di fill: vedi tabella)"))
         for b in brokers:
             lgs = by_setup_broker.get((s.sid, b.name), [])
             dup = [k for k, v in Counter(lg.tp_index for lg in lgs).items() if v > 1]
